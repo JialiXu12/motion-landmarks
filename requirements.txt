@@ -1,3 +1,13 @@
 # This template is a low-dependency template. 
 # By default there is no requirements added here.
 # Add the requirements you need to this file.
+
+h5py==3.11.0
+dicom==0.9.9.post1
+mayavi==4.8.2
+configobj==5.0.8
+SimpleITK==2.3.1
+itk==5.4.0
+scikit-image==0.24.0
+pydicom==2.4.4
+pyvista==0.43.2
