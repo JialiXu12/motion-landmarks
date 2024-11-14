@@ -1,0 +1,15 @@
+parameterized
+sphinx-copybutton
+sphinx-jsonschema
+nbsphinx
+nbsphinx-link
+SimpleITK
+pyvista
+dicom
+pandas
+h5py
+scipy
+pydicom
+tables
+meshio
+pathlib

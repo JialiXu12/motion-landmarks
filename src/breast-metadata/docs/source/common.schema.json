@@ -1,0 +1,39 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema",
+  "title": "Common Definitions",
+  "description": "Common definitions for use by other parts of the schema.",
+  "definitions": {
+    "languageTag": {
+      "$$target": ["common.schema.json#/definitions/languageTag", "#/definitions/languageTag"],
+      "title": "Language Tag",
+      "description": "A valid IETF language tag as specified by BCP 47.",
+      "type": "string",
+      "pattern": "^[A-Za-z]{2,3}([\\-_][A-Za-z0-9]+){0,4}$",
+      "minLength": 2
+    },
+    "localizedText": {
+      "$$target": "common.schema.json#/definitions/localizedText",
+      "title": "Localized Text",
+      "description": "A textual string specified in one or multiple languages, indexed by IETF language tag.",
+      "type": "object",
+      "additionalProperties": { "$ref": "#/definitions/languageTag" },
+      "minProperties": 1
+    },
+    "rodCode": {
+      "$$target": "common.schema.json#/definitions/rodCode",
+      "title": "Registry of Dialects",
+      "description": "A five-digit code from the Registry of Dialects.",
+      "type": "string",
+      "pattern": "^[0-9]{5}$",
+      "minLength": 5,
+      "maxLength": 5
+    },
+    "trimmedText": {
+      "$$target": "#/definitions/trimmedText",
+      "title": "Trimmed Text",
+      "description": "A string without surrounding whitespace characters.",
+      "type": "string",
+      "pattern": "^\\S(.*\\S)?$"
+    }
+  }
+}

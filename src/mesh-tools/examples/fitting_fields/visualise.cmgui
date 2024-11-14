@@ -1,0 +1,73 @@
+# Load mesh
+$path = "results/"
+
+if (! defined $tEnd) { $tEnd = 100; }
+$final_t = 0
+foreach my $i (1..$tEnd) {
+	my $node_file = sprintf "$path/fitting_results_iteration_%d.part0.exnode", $i;
+	if (-e $node_file) {
+        print "Reading file: $node_file; at time $i\n";
+        gfx read node time $i $node_file region mesh;
+        $final_t = $i
+	}
+}
+gfx read element "$path/fitting_results_iteration_1.part0.exelem" region mesh;
+
+gfx r data $path/data_points.exdata region data
+
+# calculate the faces
+gfx define faces egroup "mesh"
+gfx define field "mesh/fitted_field_x" component fitted_field.1
+gfx define field "mesh/fitted_field_y" component fitted_field.2
+gfx define field "mesh/fitted_field_z" component fitted_field.3
+
+gfx define field "mesh/geometry_x" component geometry.x
+gfx define field "mesh/geometry_y" component geometry.y
+gfx define field "mesh/geometry_z" component geometry.z
+
+gfx set time $final_t
+
+gfx modify g_element /data/ points domain_datapoints coordinate coordinates tessellation default_points LOCAL glyph sphere size "0.05*0.05*0.05" offset 0,0,0 font default select_on material default selected_material default_selected render_shaded;
+
+gfx modify g_element "/" general clear;
+gfx modify g_element /mesh/ general clear;
+gfx modify g_element /mesh/ lines domain_mesh1d coordinate geometry exterior face all tessellation default LOCAL line_width 2 line line_base_size 0 select_on material default selected_material default_selected render_shaded;
+gfx modify g_element /mesh/ points domain_nodes coordinate geometry tessellation default_points LOCAL glyph sphere size "0.05*0.05*0.05" offset 0,0,0 font default select_on invisible material default selected_material default_selected render_shaded;
+
+gfx create spectrum fitted_field_x
+gfx modify g_element /mesh/ surfaces domain_mesh2d coordinate geometry face all tessellation default LOCAL select_on material default data fitted_field_x spectrum default selected_material default_selected render_shaded;
+gfx modify spectrum fitted_field_x linear reverse extend_above extend_below rainbow colour_range 0 1 component 1;
+gfx modify spectrum fitted_field_x autorange
+
+gfx create spectrum fitted_field_y
+gfx modify g_element /mesh/ surfaces domain_mesh2d coordinate geometry face all tessellation default LOCAL select_on material default data fitted_field_y spectrum default selected_material default_selected render_shaded;
+gfx modify spectrum fitted_field_y linear reverse extend_above extend_below rainbow colour_range 0 1 component 1;
+gfx modify spectrum fitted_field_y autorange
+
+gfx create spectrum fitted_field_z
+gfx modify g_element /mesh/ surfaces domain_mesh2d coordinate geometry face all tessellation default LOCAL select_on material default data fitted_field_z spectrum default selected_material default_selected render_shaded;
+gfx modify spectrum fitted_field_z linear reverse extend_above extend_below rainbow colour_range 0 1 component 1;
+gfx modify spectrum fitted_field_z autorange
+
+gfx define tessellation default minimum_divisions "1" refinement_factors "16" circle_divisions 12;
+gfx define tessellation default_points minimum_divisions "1" refinement_factors "1" circle_divisions 12;
+
+gfx create material muscle normal_mode ambient 0.4 0.14 0.11 diffuse 0.5 0.12 0.1 emission 0 0 0 specular 0.3 0.5 0.5 alpha 1 shininess 0.2;
+gfx create material default normal_mode ambient 1 1 1 diffuse 1 1 1 emission 0 0 0 specular 0 0 0 alpha 0.4 shininess 0;
+
+gfx cre win
+gfx edit scene
+
+
+gfx modify window 1 layout simple ortho_axes -x z eye_spacing 0.25 width 1715 height 912;
+gfx modify window 1 background colour 1 1 1 texture none;
+
+
+
+#gfx modify window 1 set antialias 8 # Improves graphics but best to save all your work first as sometimes this might cause computer to crash
+gfx modify window 1 set order_independent_transparency 6
+#gfx modify window 1 set perturb_lines
+#gfx print window 1 width 2048 height 2048 format rgb file cmgui_image.png # or
+#gfx print window 1 width 4096 height 4096 format rgb force_onscreen file onscreen_cmgui_image.png 
+
+
