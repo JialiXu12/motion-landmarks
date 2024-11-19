@@ -396,95 +396,139 @@ def writeLandmarks(proneLd, supineLd, filePath):
 #     dist, point_id = surface_tree.query(points)
 #     return dist, surface_points[point_id]
 
-
-def shortest_distances(metadata, cw_path, landmarks, output_dir):
-    skin = {}
+def shortest_distances(metadata, masks_path, registrar_landmarks):
+    distances_skin = {}
     closest_points_skin = {}
-    closest_points_cw = {}
-    rib = {}
+    distances_rib = {}
+    closest_points_rib = {}
+    #     dist_landmark_skin, points_skin, dist_landmark_cw, points_cw = ld.shortest_distances(metadata, masks_path,
+    for vl_id in registrar_landmarks.vl_ids:
+        skin_mask_path = os.path.join(masks_path, metadata[vl_id].position,
+                                      'body\\body_VL{0:05d}.nii'.format(vl_id))
+        rib_mask_path = os.path.join(masks_path, metadata[vl_id].position,
+                                     'rib_cage\\rib_cage_VL{0:05d}.nii'.format(vl_id))
 
-    debug = False
-
-    for vl_id in landmarks.vl_ids:
-        print('Distance estimation for subject {0}'.format(vl_id))
-        skip_cw = False
-        skip_skin = False
-
-        cw_data_path = os.path.join(cw_path, metadata[vl_id].position, 'rib_cage\\rib_cage_VL{0:05d}.nii'.format(vl_id))
-        skin_data_path = os.path.join(cw_path, metadata[vl_id].position, 'body\\body_VL{0:05d}.nii'.format(vl_id))
-        skin[vl_id] = []
-        closest_points_skin[vl_id] = []
-        rib[vl_id] = []
-        closest_points_cw[vl_id] = []
-        if debug:
-            from mayavi import mlab
-            import bmw
-            from morphic import viewer
-            fig = bmw.add_fig(viewer, label='DISTANCE PLOT')
-
-        if os.path.exists(skin_data_path):
-            skin_mask = sitkTools.readNIFTIImage(skin_data_path)
-            skin_mask.setAlfOrientation()
-            skin_mask.set_origin([0, 0, 0])
-            # pdb.set_trace()
+        # Check if skin mask path exists
+        if os.path.exists(skin_mask_path):
+            skin_mask = breast_metadata.readNIFTIImage(skin_mask_path, swap_axes=True)
             skin_points = sitkTools.extract_contour_points(skin_mask, 100000)
-            # pdb.set_trace()
-            skin_tree = cKDTree(skin_points)
-            if debug:
-                fig.plot_points('skin_surface', skin_points, color=(1, 1, 1), size=0.5)
+            skin_points_kd_tree = cKDTree(skin_points)
+
+            # Check if rib mask path exists
+            if os.path.exists(rib_mask_path):
+                rib_mask = breast_metadata.readNIFTIImage(rib_mask_path, swap_axes=True)
+                rib_points = sitkTools.extract_contour_points(rib_mask, 100000)
+                rib_points_kd_tree = cKDTree(rib_points)
+
+                for indx, landmarks in enumerate(registrar_landmarks.landmarks[vl_id]):
+                    # Query the KDTree to find the shortest distance to the landmark
+                    skin_distance, skin_index = skin_points_kd_tree.query(landmarks)
+                    # Get the coordinates of the nearest point on the skin
+                    distances_skin.setdefault(vl_id, []).append(skin_distance)
+                    skin_closest_point = skin_points[skin_index]
+                    closest_points_skin.setdefault(vl_id, []).append(skin_closest_point)
+
+                    # Query the KDTree to find the shortest distance to the landmark
+                    rib_distance, rib_index = rib_points_kd_tree.query(landmarks)
+                    # Get the coordinates of the nearest point on the rib cage
+                    distances_rib.setdefault(vl_id, []).append(rib_distance)
+                    rib_closest_point = rib_points[rib_index]
+                    closest_points_rib.setdefault(vl_id, []).append(rib_closest_point)
+            else:
+                print(f"Rib mask not found for VL{vl_id}. Skipping rib distance calculation.")
         else:
-            print('skin surface  is missing')
-            skip_skin = True
+            print(f"Skin mask not found for VL{vl_id}. Skipping skin distance calculation.")
 
-        if os.path.exists(cw_data_path):
-            cw_mask = sitkTools.readNIFTIImage(cw_data_path)
-            cw_mask.setAlfOrientation()
-            cw_mask.set_origin([0, 0, 0])
-            cw_points = sitkTools.extract_contour_points(cw_mask, 100000)
-            cw_tree = cKDTree(cw_points)
-            if debug:
-                fig.plot_points('cw_surface', cw_points, color=(0, 0, 1), size=0.5)
+    return distances_skin, closest_points_skin, distances_rib, closest_points_rib
 
-        else:
-            print('chest wall is missing')
-            skip_cw = True
-
-        for indx, points in enumerate(landmarks.landmarks[vl_id]):
-            # print(points)
-            if not skip_skin:
-                closest_skin_dist, closest_skin_point_id = skin_tree.query(points)
-                skin[vl_id].append(closest_skin_dist)
-                closest_points_skin[vl_id].append(skin_points[closest_skin_point_id])
-                if debug:
-                    # import pdb; pdb.set_trace()
-
-                    fig.plot_points('skin_{0}'.format(indx), [skin_points[closest_skin_point_id]],
-                                    color=(1, 0, 0), size=3)
-                    fig.plot_points('landmark_{0}'.format(indx), [points],
-                                    color=(1, 0, 0), size=3)
-                    line = np.array([points, skin_points[closest_skin_point_id]])
-                    line = np.reshape(line, (2, 3))
-                    fig.plots['line_skin_{0}'.format(indx)] = mlab.plot3d(line[:, 0], line[:, 1], line[:, 2],
-                                                                          color=(1, 0, 1), tube_radius=1)
-            if not skip_cw:
-                closest_cwm_dist, closest_cw_point_id = cw_tree.query(points)
-                rib[vl_id].append(closest_cwm_dist)
-                closest_points_cw[vl_id].append(cw_points[closest_cw_point_id])
-                if debug:
-                    fig.plot_points('cw_{0}'.format(indx), [cw_points[closest_cw_point_id]],
-                                    color=(0, 1, 0), size=3)
-                    fig.plot_points('landmark_{0}'.format(indx), [points],
-                                    color=(1, 0, 0), size=3)
-                    line = np.array([points, cw_points[closest_cw_point_id]])
-                    line = np.reshape(line, (2, 3))
-                    fig.plots['line_cw_{0}'.format(indx)] = mlab.plot3d(line[:, 0], line[:, 1], line[:, 2],
-                                                                        color=(1, 1, 0), tube_radius=1)
-        if debug:
-            # pdb.set_trace()
-            export_figure(fig, '{1}_{0}_minimal_distance'.format(metadata[vl_id].position, vl_id), output_dir)
-            fig.clear()
-
-    return skin, closest_points_skin, rib, closest_points_cw
+# def shortest_distances(metadata, cw_path, landmarks, output_dir):
+#     skin = {}
+#     closest_points_skin = {}
+#     closest_points_cw = {}
+#     rib = {}
+#
+#     debug = False
+#
+#     for vl_id in landmarks.vl_ids:
+#         print('Distance estimation for subject {0}'.format(vl_id))
+#         skip_cw = False
+#         skip_skin = False
+#
+#         cw_data_path = os.path.join(cw_path, metadata[vl_id].position, 'rib_cage\\rib_cage_VL{0:05d}.nii'.format(vl_id))
+#         skin_data_path = os.path.join(cw_path, metadata[vl_id].position, 'body\\body_VL{0:05d}.nii'.format(vl_id))
+#         skin[vl_id] = []
+#         closest_points_skin[vl_id] = []
+#         rib[vl_id] = []
+#         closest_points_cw[vl_id] = []
+#         if debug:
+#             from mayavi import mlab
+#             import bmw
+#             from morphic import viewer
+#             fig = bmw.add_fig(viewer, label='DISTANCE PLOT')
+#
+#         if os.path.exists(skin_data_path):
+#             skin_mask = sitkTools.readNIFTIImage(skin_data_path)
+#             skin_mask.setAlfOrientation()
+#             skin_mask.set_origin([0, 0, 0])
+#             # pdb.set_trace()
+#             skin_points = sitkTools.extract_contour_points(skin_mask, 100000)
+#             # pdb.set_trace()
+#             skin_tree = cKDTree(skin_points)
+#             if debug:
+#                 fig.plot_points('skin_surface', skin_points, color=(1, 1, 1), size=0.5)
+#         else:
+#             print('skin surface  is missing')
+#             skip_skin = True
+#
+#         if os.path.exists(cw_data_path):
+#             cw_mask = sitkTools.readNIFTIImage(cw_data_path)
+#             cw_mask.setAlfOrientation()
+#             cw_mask.set_origin([0, 0, 0])
+#             cw_points = sitkTools.extract_contour_points(cw_mask, 100000)
+#             cw_tree = cKDTree(cw_points)
+#             if debug:
+#                 fig.plot_points('cw_surface', cw_points, color=(0, 0, 1), size=0.5)
+#
+#         else:
+#             print('chest wall is missing')
+#             skip_cw = True
+#
+#         for indx, points in enumerate(landmarks.landmarks[vl_id]):
+#             # print(points)
+#             if not skip_skin:
+#                 closest_skin_dist, closest_skin_point_id = skin_tree.query(points)
+#                 skin[vl_id].append(closest_skin_dist)
+#                 closest_points_skin[vl_id].append(skin_points[closest_skin_point_id])
+#                 if debug:
+#                     # import pdb; pdb.set_trace()
+#
+#                     fig.plot_points('skin_{0}'.format(indx), [skin_points[closest_skin_point_id]],
+#                                     color=(1, 0, 0), size=3)
+#                     fig.plot_points('landmark_{0}'.format(indx), [points],
+#                                     color=(1, 0, 0), size=3)
+#                     line = np.array([points, skin_points[closest_skin_point_id]])
+#                     line = np.reshape(line, (2, 3))
+#                     fig.plots['line_skin_{0}'.format(indx)] = mlab.plot3d(line[:, 0], line[:, 1], line[:, 2],
+#                                                                           color=(1, 0, 1), tube_radius=1)
+#             if not skip_cw:
+#                 closest_cwm_dist, closest_cw_point_id = cw_tree.query(points)
+#                 rib[vl_id].append(closest_cwm_dist)
+#                 closest_points_cw[vl_id].append(cw_points[closest_cw_point_id])
+#                 if debug:
+#                     fig.plot_points('cw_{0}'.format(indx), [cw_points[closest_cw_point_id]],
+#                                     color=(0, 1, 0), size=3)
+#                     fig.plot_points('landmark_{0}'.format(indx), [points],
+#                                     color=(1, 0, 0), size=3)
+#                     line = np.array([points, cw_points[closest_cw_point_id]])
+#                     line = np.reshape(line, (2, 3))
+#                     fig.plots['line_cw_{0}'.format(indx)] = mlab.plot3d(line[:, 0], line[:, 1], line[:, 2],
+#                                                                         color=(1, 1, 0), tube_radius=1)
+#         if debug:
+#             # pdb.set_trace()
+#             export_figure(fig, '{1}_{0}_minimal_distance'.format(metadata[vl_id].position, vl_id), output_dir)
+#             fig.clear()
+#
+#     return skin, closest_points_skin, rib, closest_points_cw
 
 
 def get_valid_landmarks_id(prone_landmarks, supine_landmarks,
@@ -561,6 +605,8 @@ def corresponding_landmarks_between_registrars(registrar_a_prone, registrar_b_pr
             landmark_a_supine = registrar_a_supine.landmarks[vl_id][indx_a]
             landmark_b_supine = registrar_b_supine.landmarks[vl_id][indx_b]
 
+            # if calculate_distance(landmark_a_supine, landmark_b_supine) <= 3 and \
+            #         registrar_a_prone.landmark_types[vl_id][indx_a] == registrar_b_prone.landmark_types[vl_id][indx_b]:
             if calculate_distance(landmark_a_supine, landmark_b_supine) <= 3:
                 corre[vl_id].append([indx_a, indx_b])
 
