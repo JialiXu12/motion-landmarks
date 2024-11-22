@@ -169,44 +169,57 @@ class Landmarks:
 
     # todo the class structure needs to be improved
     # separate the landmark information for each volunteer
-    # this class should return the landmarks of a single volunteer insteas of an dictionary.
+    # this class should return the landmarks of a single volunteer instead of an dictionary.
 
     def __init__(self, user_id, volunteer_ids, position, root_data_folder=None):
         self.user_id = user_id  # the corresponding id of the volunteer from were the landmarks have been extracted
-
         self.position = position  # volunteer position prone or supine
-        self.landmarks = {}  # dictionary of landmarks
-        # the key correspond to the volunteer Id
-        self.landmark_types = {}  # types defined by the registrars {lymth, fibroadenoma..}
+        self.landmarks = {}  # dictionary of landmarks, the key correspond to the volunteer id
+        self.landmark_types = {}  # types defined by the registrars {lymph, cyst..}
         self.vl_ids = []  # list of volunteers ids  already existing the dictionary
+        self.rejected_volunteers = []  # List of volunteer IDs where all landmarks were rejected
         self.root_data_folder = root_data_folder  # the landmarks file location
-        # self.quadrants = {}  # dictionary with the location of each landmarks identified by quadrants
-        # the keys correspond to the volunteer id
-        # the landmarks orders corresponds with the landmarks dictionary
 
-        if not root_data_folder == None:
-            # load the landmarks for each volunteer in the list
-            for vl_indx in range(len(volunteer_ids)):
-                vl_folder_path = os.path.join(
-                    self.root_data_folder, '{0}\\VL{1:05d}'.format(self.user_id, volunteer_ids[vl_indx]))
-                if os.path.exists(vl_folder_path):
-                    self.load_landmarks(vl_folder_path)
+        if root_data_folder:
+            self._load_all_landmarks(volunteer_ids)
 
-            if volunteer_ids[vl_indx] in self.landmarks:
-                self.landmarks[volunteer_ids[vl_indx]] = np.array(self.landmarks[volunteer_ids[vl_indx]])
+    def _load_all_landmarks(self, volunteer_ids):
+        for vl_id in volunteer_ids:
+            vl_folder_path = os.path.join(self.root_data_folder, f"{vl_id:05d}")
+            # If the folder doesn't exist, skip the volunteer and remove from vl_ids
+            if not os.path.exists(vl_folder_path):
+                if vl_id in self.vl_ids:
+                    self.vl_ids.remove(vl_id)
+                continue
 
-    def load_landmarks(self, vl_folder_path):
-        # load the all landmarks existing in the folder vl_folder_path
-        file_nb = len(os.listdir(vl_folder_path))
+            self._load_landmarks_from_folder(vl_folder_path, vl_id)
 
-        for file in range(file_nb):
-            path = os.path.join(vl_folder_path, 'point.{0:03d}.json'.format(file + 1))
-            with open(path) as _landmarkFile:
-                self.add_landmark(json.load(_landmarkFile))
+            if vl_id in self.landmarks:
+                self.landmarks[vl_id] = np.array(self.landmarks[vl_id])
 
-    def add_landmark(self, landmark):
+    def _load_landmarks_from_folder(self, vl_folder_path, volunteer_id):
+        valid_landmarks_found = False
 
-        vl_id = int(landmark['subject'][-5:])
+        for filename in os.listdir(vl_folder_path):
+            if filename.startswith("point.") and filename.endswith(".json"):
+                file_path = os.path.join(vl_folder_path, filename)
+                with open(file_path, "r") as file:
+                    landmark = json.load(file)
+                    if landmark.get("status") == "rejected":
+                        print(f"Rejected landmark from volunteer {volunteer_id}: '{filename}'")
+                        continue
+                    valid_landmarks_found = True  # at least one valid landmark found
+                    self._add_landmark(landmark)
+
+        # Include the volunteer if they have at least one valid landmark
+        if valid_landmarks_found:
+            if volunteer_id not in self.vl_ids:
+                self.vl_ids.append(volunteer_id)
+        else:
+            self.rejected_volunteers.append(volunteer_id)
+
+    def _add_landmark(self, landmark):
+        vl_id = int(landmark["subject"][-5:])
         if vl_id not in self.landmarks:
             self.landmarks[vl_id] = []
             self.landmark_types[vl_id] = []
@@ -218,6 +231,10 @@ class Landmarks:
         point.append(landmark['{0}_point'.format(self.position)]['point']['z'])
         self.landmarks[vl_id].append(point)
         self.landmark_types[vl_id].append(landmark['type'])
+
+    def get_valid_volunteers(self):
+        # Returns the list of volunteer IDs with at least one valid landmark.
+        return self.vl_ids
 
     def copy(self):
         # make a copy of the object
@@ -568,6 +585,15 @@ def calculate_distance(point_a, point_b):
                      (point_a[1] - point_b[1]) ** 2 +
                      (point_a[2] - point_b[2]) ** 2)
 
+def remove_volunteer(v_id, registrar):
+    """Safely remove a volunteer ID from all relevant attributes of a registrar."""
+    if v_id in registrar.vl_ids:
+        registrar.vl_ids.remove(v_id)
+    if v_id in registrar.landmarks:
+        registrar.landmarks.pop(v_id, None)
+    if v_id in registrar.landmark_types:
+        registrar.landmark_types.pop(v_id, None)
+
 def corresponding_landmarks_between_registrars(registrar_a_prone, registrar_b_prone, registrar_a_supine,
                                               registrar_b_supine):
     # Checks if each landmark identified by one registrar has a corresponding landmark identified by the other registrar
@@ -582,6 +608,7 @@ def corresponding_landmarks_between_registrars(registrar_a_prone, registrar_b_pr
     #   - indx_b: Index of the corresponding landmark identified by the second registrar.
 
     corre = {}
+    volunteers_with_mismatched_types = set()
 
     for vl_id in registrar_a_prone.landmarks:
         # Check if the volunteer has landmarks identified by both registrars in both positions
@@ -605,14 +632,39 @@ def corresponding_landmarks_between_registrars(registrar_a_prone, registrar_b_pr
             landmark_a_supine = registrar_a_supine.landmarks[vl_id][indx_a]
             landmark_b_supine = registrar_b_supine.landmarks[vl_id][indx_b]
 
-            # if calculate_distance(landmark_a_supine, landmark_b_supine) <= 3 and \
-            #         registrar_a_prone.landmark_types[vl_id][indx_a] == registrar_b_prone.landmark_types[vl_id][indx_b]:
-            if calculate_distance(landmark_a_supine, landmark_b_supine) <= 3:
+            # Evaluate conditions
+            distance_valid = calculate_distance(landmark_a_supine, landmark_b_supine) <= 3
+            types_match = registrar_a_prone.landmark_types[vl_id][indx_a] == registrar_b_prone.landmark_types[vl_id][indx_b]
+            types_excluded = registrar_a_prone.landmark_types[vl_id][indx_a] == 'fibroadenoma'
+
+            if not distance_valid or not types_match or types_excluded:
+                # Log specific reasons for mismatches
+                # if not distance_valid:
+                #     print(
+                #         f"Landmark does not match for volunteer {vl_id} between registrars due to distance > 3mm.")
+                # if not types_match:
+                #     print(
+                #         f"Landmark does not match for volunteer {vl_id} between registrars due to mismatched landmark types.")
+                volunteers_with_mismatched_types.add(vl_id)
+            else:
                 corre[vl_id].append([indx_a, indx_b])
+
 
         # Remove duplicates by keeping unique pairs of corresponding landmarks
         unique_correspondences = set(tuple(pair) for pair in corre[vl_id])
         corre[vl_id] = sorted([list(pair) for pair in unique_correspondences])
+
+    registrars = [registrar_a_prone, registrar_b_prone, registrar_a_supine, registrar_b_supine]
+
+    for v_id in list(volunteers_with_mismatched_types):
+        # Check if the volunteer has no corresponding landmarks
+        if v_id in corre and len(corre[v_id]) == 0:
+            corre.pop(v_id, None)  # Safely remove from corre
+
+            # Remove the volunteer ID from all registrars
+            for registrar in registrars:
+                remove_volunteer(v_id, registrar)
+            print(f"Volunteer {v_id} removed from the landmarks data.")
 
     # Remove empty lists from the final dictionary
     corre = {k: v for k, v in corre.items() if v}
@@ -659,16 +711,17 @@ def displacement(landmarks_a, landmarks_b):
 
 # Clock face coordinates
 def clock(registrar, metadata):
-    # Time, quadrants, distance to the nipple and volunteer numbers as arrays
-
+    # Create dictionary for side, time, quadrants, and distance to the nipple
+    breast_side = {}
     time = {}
     quadrants = {}
     dist_landmark_nipple = {}
 
     for vl_id in registrar.landmarks:
-        dist_landmark_nipple[vl_id] = []
+        breast_side[vl_id] = []
         time[vl_id] = []
         quadrants[vl_id] = []
+        dist_landmark_nipple[vl_id] = []
 
         # Check if vl_id exists in metadata and has valid attributes
         skip = (
@@ -688,6 +741,7 @@ def clock(registrar, metadata):
                     nipple = metadata[vl_id].right_nipple  # RHS
                     side = 'RB'
 
+                breast_side[vl_id].append(side)
                 x = landmark[0] - nipple[0]
                 y = landmark[1] - nipple[1]
                 z = landmark[2] - nipple[2]
@@ -732,7 +786,7 @@ def clock(registrar, metadata):
 
                 time[vl_id].append(clock)
                 quadrants[vl_id].append(quadrant)
-    return time, quadrants, dist_landmark_nipple
+    return breast_side, time, quadrants, dist_landmark_nipple
 
 # def clock(registrar, metadata):
 #     # Time, distance to the nipple and volunteer numbers as arrays

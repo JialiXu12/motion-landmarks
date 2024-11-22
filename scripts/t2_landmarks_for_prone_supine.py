@@ -5,10 +5,12 @@ from tools import landmarks as ld
 from tools import realignment_tools
 from tools import subjectModel
 import pandas as pd
-import h5py
 import breast_metadata
 import pyvista as pv
 import copy
+import matplotlib.pyplot as plt
+from matplotlib.colors import Normalize
+
 
 '''
     'soft_landmarks_path': contain all volunteer breast tissue landmarks (e.g., cyst, lymph node) 
@@ -36,20 +38,28 @@ import copy
 '''
 
 if __name__ == '__main__':
+    plot_figures = True
     # volunteer IDs
-    vl_ids = [9,12]
+    # vl_ids = [11,12,17,31,64,77]
+    # vl_ids = [9,11,12,14,15,17,18,19,20,22,25,29,30,31,32,34,35,36,37,38,39,40,41,42,44,45,46,47,48,49,50,51,52,
+    #           54,56,57,58,59,60,61,63,64,65,66,67,68,69,70,71,72,74,75,76,77,78,79,81,82,84,85,86,87,88,89]
+    vl_ids = [9,11,12,14,15,17,18,19,20,22,25,29,30,31,32,34,35,36,37,38,39,40,41,42,44,45,46,47,48,49,50,51,52,
+              54,56,57,58,59,60,61,63,64,65,66,67,68,69,70,71,72,74,75,76,77,78,79,81,84,85,86,87,88,89]
 
     # define all the paths
     mri_t2_images_root_path = r'U:\projects\volunteer_camri\old_data\mri_t2'
-    soft_landmarks_path = r'U:\sandbox\jxu759\motion_of_landmarks\prasad_data\T2-landmark-analysis-study\picker\points'
+    # soft_landmarks_path = r'U:\sandbox\jxu759\motion_of_landmarks\prasad_data\T2-landmark-analysis-study\picker\points'
+
+    soft_landmarks_r1_path = r'U:\projects\dashboard\picker_points\ben_reviewed'
+    soft_landmarks_r2_path = r"U:\projects\dashboard\picker_points\holly"
+
     rigid_landmarks_root_path = r'U:\sandbox\jxu759\motion_of_landmarks\anna_data\picker\points_wc_raf'
     nipple_path = os.path.join(rigid_landmarks_root_path, 'user002')
     sternum_path = os.path.join(rigid_landmarks_root_path, 'user001')
+
     # masks_path = r'U:\sandbox\jxu759\motion_of_landmarks\anna_data\automatic_segmentation_CNN\T2_from_T1'
     masks_path = r'U:\sandbox\jxu759\motion_of_landmarks\anna_data\automatic_segmentation_CNN\T2'
-    # rib_mask_path = os.path.join(masks_path, r'prone\rib_cage\rib_cage_VL{0:05d}.nii'.format(vl_ids))
-    prone_skin_mask_path = os.path.join(masks_path, r'prone\body\body_VL{0:05d}.nii'.format(vl_ids[0]))
-    supine_skin_mask_path = os.path.join(masks_path, r'supine\body\body_VL{0:05d}.nii'.format(vl_ids[0]))
+
     prone_mesh_path = r'U:\sandbox\jxu759\motion_of_landmarks\prasad_data\prone_to_supine_t2\2017_09_06\volunteer_meshes'
     supine_mesh_path = r'U:\sandbox\jxu759\motion_of_landmarks\prasad_data\supine_to_prone_t2\2017-07-31'
     output_dir = r'..\output'
@@ -61,8 +71,12 @@ if __name__ == '__main__':
     for position in positions:
         # Load breast tissue landmarks identified by registrars
         # User008 = Ben, User007 = Clark
-        registrar1_landmarks = ld.Landmarks('user008', vl_ids, position, soft_landmarks_path)
-        registrar2_landmarks = ld.Landmarks('user007', vl_ids, position, soft_landmarks_path)
+        # registrar1_landmarks = ld.Landmarks('user008', vl_ids, position, soft_landmarks_path)
+        # registrar2_landmarks = ld.Landmarks('user007', vl_ids, position, soft_landmarks_path)
+
+        registrar1_landmarks = ld.Landmarks('user008', vl_ids, position, soft_landmarks_r1_path)
+        vl_ids = registrar1_landmarks.get_valid_volunteers()
+        registrar2_landmarks = ld.Landmarks('user007', vl_ids, position, soft_landmarks_r2_path)
 
         # Load metadata from mr images and nipple, sternum, and spinal cord landmarks for each volunteer
         metadata = ld.read_metadata(vl_ids, position, mri_t2_images_root_path, nipple_path, sternum_path)
@@ -80,6 +94,7 @@ if __name__ == '__main__':
     # and the second represents the corresponding landmark number identified by the second registrar.
     cor_1_2 = ld.corresponding_landmarks_between_registrars(registrar1_landmarks_prone, registrar2_landmarks_prone,
         registrar1_landmarks_supine, registrar2_landmarks_supine)
+    vl_ids = list(cor_1_2.keys())
 
     # Make a deep copy to retain all attributes
     registrar1_prone_landmarks = copy.deepcopy(registrar1_landmarks_prone)
@@ -122,16 +137,6 @@ if __name__ == '__main__':
             registrar1_supine_landmarks.landmark_types[vl_id].append(registrar1_supine_landmark_type)
             registrar2_supine_landmarks.landmark_types[vl_id].append(registrar2_supine_landmark_type)
 
-    # define output paths
-    registrar1_dist_output = os.path.join(output_dir, 'registrar_1_t2')
-    if not os.path.exists(registrar1_dist_output):
-        os.mkdir(registrar1_dist_output)
-    registrar2_dist_output = os.path.join(output_dir, 'registrar_2_t2')
-    if not os.path.exists(registrar2_dist_output):
-        os.mkdir(registrar2_dist_output)
-    excel_file = "../output/landmarks_results.xlsx"
-    absolute_path = os.path.abspath(excel_file)
-    print("Absolute path:", absolute_path)
 
     # Closest distances from landmark to skin and chest wall
     dist_landmark_skin_r1_p, closest_points_skin_r1_p, \
@@ -148,15 +153,112 @@ if __name__ == '__main__':
                                                                                 registrar2_supine_landmarks)
 
     # Landmark positions in time coordinates, distance to the nipple
-    time_r1_p, quadrants_r1_p, dist_landmark_nipple_r1_p = ld.clock(registrar1_prone_landmarks, prone_metadata)
-    time_r2_p, quadrants_r2_p, dist_landmark_nipple_r2_p = ld.clock(registrar2_prone_landmarks, prone_metadata)
-    time_r1_s, quadrants_r1_s, dist_landmark_nipple_r1_s = ld.clock(registrar1_supine_landmarks, supine_metadata)
-    time_r2_s, quadrants_r2_s, dist_landmark_nipple_r2_s = ld.clock(registrar2_supine_landmarks, supine_metadata)
+    side_r1_p, time_r1_p, quadrants_r1_p, dist_landmark_nipple_r1_p = ld.clock(registrar1_prone_landmarks, prone_metadata)
+    side_r2_p, time_r2_p, quadrants_r2_p, dist_landmark_nipple_r2_p = ld.clock(registrar2_prone_landmarks, prone_metadata)
+    side_r1_s, time_r1_s, quadrants_r1_s, dist_landmark_nipple_r1_s = ld.clock(registrar1_supine_landmarks, supine_metadata)
+    side_r2_s, time_r2_s, quadrants_r2_s, dist_landmark_nipple_r2_s = ld.clock(registrar2_supine_landmarks, supine_metadata)
 
     # Calculate the displacement of the landmarks between prone and supine positions
-    # landmarks_dispacement = ld.landmark_displacement(registrar1_prone_landmarks, registrar1_supine_landmarks)
-    landmarks_dispacement_r1 = [np.arange(1, len(registrar1_prone_landmarks.landmarks[vl_id])+1) for vl_id in vl_ids]
-    landmarks_dispacement_r2 = [np.arange(1, len(registrar1_prone_landmarks.landmarks[vl_id])+1) for vl_id in vl_ids]
+    # landmarks_displacement = ld.landmark_displacement(registrar1_prone_landmarks, registrar1_supine_landmarks)
+    landmarks_displacement_r1 = [np.arange(1, len(registrar1_prone_landmarks.landmarks[vl_id])+1) for vl_id in vl_ids]
+    landmarks_displacement_r2 = [np.arange(1, len(registrar1_prone_landmarks.landmarks[vl_id])+1) for vl_id in vl_ids]
+
+    # define output paths
+    # registrar1_dist_output = os.path.join(output_dir, 'registrar_1_t2')
+    # if not os.path.exists(registrar1_dist_output):
+    #     os.mkdir(registrar1_dist_output)
+    # registrar2_dist_output = os.path.join(output_dir, 'registrar_2_t2')
+    # if not os.path.exists(registrar2_dist_output):
+    #     os.mkdir(registrar2_dist_output)
+    excel_file = "../output/landmarks_results.xlsx"
+    fig_path = "../output/figs"
+    if not os.path.exists(fig_path):
+        os.makedirs(fig_path)
+
+    if plot_figures:
+        from tools import sitkTools
+        for vl_id in vl_ids:
+            prone_skin_mask_path = os.path.join(masks_path, r'prone\body\body_VL{0:05d}.nii'.format(vl_id))
+            supine_skin_mask_path = os.path.join(masks_path, r'supine\body\body_VL{0:05d}.nii'.format(vl_id))
+            prone_rib_mask_path = os.path.join(masks_path, r'prone\rib_cage\rib_cage_VL{0:05d}.nii'.format(vl_id))
+            supine_rib_mask_path = os.path.join(masks_path, r'supine\rib_cage\rib_cage_VL{0:05d}.nii'.format(vl_id))
+
+            for position in positions:
+                if position == 'prone':
+                    closest_points_skin = closest_points_skin_r1_p
+                    closest_points_rib = closest_points_rib_r1_p
+                    skin_mask_path = prone_skin_mask_path
+                    rib_mask_path = prone_rib_mask_path
+                    metadata = prone_metadata
+                else:
+                    closest_points_skin = closest_points_skin_r1_s
+                    closest_points_rib = closest_points_rib_r1_s
+                    skin_mask_path = supine_skin_mask_path
+                    rib_mask_path = supine_rib_mask_path
+                    metadata = supine_metadata
+
+                # Load example prone MRI images
+                mri_t2_images_path = os.path.join(mri_t2_images_root_path, 'VL{0:05d}'.format(vl_id), position)
+                mri_t2_images = breast_metadata.Scan(mri_t2_images_path)
+                orientation_flag = "RAI"
+                mri_t2_images_grid = breast_metadata.SCANToPyvistaImageGrid(mri_t2_images, orientation_flag)
+
+                skin_mask = breast_metadata.readNIFTIImage(skin_mask_path, swap_axes=True)
+                skin_mask_image_grid = breast_metadata.SCANToPyvistaImageGrid(skin_mask, orientation_flag)
+                rib_mask = breast_metadata.readNIFTIImage(rib_mask_path, swap_axes=True)
+                rib_mask_image_grid = breast_metadata.SCANToPyvistaImageGrid(rib_mask, orientation_flag)
+
+                plotter = pv.Plotter()
+                opacity = np.linspace(0, 0.2, 100)
+                plotter.add_volume(mri_t2_images_grid, scalars='values', cmap='gray', opacity=opacity)
+                skin_mask_threshold = skin_mask_image_grid.threshold(value=0.5)
+                rib_mask_threshold = rib_mask_image_grid.threshold(value=0.5)
+
+                plotter.add_mesh(skin_mask_threshold, color='lightskyblue', opacity=0.2, show_scalar_bar=False)
+                plotter.add_mesh(rib_mask_threshold, color='lavender', opacity=0.2, show_scalar_bar=False)
+
+                left_nipple = metadata[vl_id].left_nipple
+                right_nipple = metadata[vl_id].right_nipple
+                plotter.add_points(left_nipple, color='pink', render_points_as_spheres=True, label='Point cloud',
+                                   point_size=14)
+                plotter.add_points(right_nipple, color='pink', render_points_as_spheres=True, label='Point cloud',
+                                   point_size=14)
+                plotter.add_points(np.array(registrar1_prone_landmarks.landmarks[vl_id]), color='red', render_points_as_spheres=True,
+                                   label='Point cloud', point_size=12)
+                plotter.add_points(np.array(closest_points_skin[vl_id]), color='green', render_points_as_spheres=True,
+                                   label='Point cloud', point_size=10)
+                plotter.add_points(np.array(closest_points_rib[vl_id]), color='blue', render_points_as_spheres=True,
+                                   label='Point cloud', point_size=10)
+
+                # Draw lines between corresponding points in landmarks and skin
+                for i in range(len(registrar1_prone_landmarks.landmarks[vl_id])):
+                    line = pv.Line(registrar1_prone_landmarks.landmarks[vl_id][i], np.array(closest_points_skin[vl_id])[i])
+                    plotter.add_mesh(line, color="yellow", line_width=3, label='Line')
+                # Draw lines between corresponding points in landmarks and rib cage
+                for i in range(len(registrar1_prone_landmarks.landmarks[vl_id])):
+                    line = pv.Line(registrar1_prone_landmarks.landmarks[vl_id][i], np.array(closest_points_rib[vl_id])[i])
+                    plotter.add_mesh(line, color="magenta", line_width=3, label='Line')
+
+                for i in range(len(registrar1_prone_landmarks.landmarks[vl_id])):
+                    if abs(left_nipple[0]-registrar1_prone_landmarks.landmarks[vl_id][i][0]) < abs(right_nipple[0]-registrar1_prone_landmarks.landmarks[vl_id][i][0]):
+                        line = pv.Line(registrar1_prone_landmarks.landmarks[vl_id][i], left_nipple)
+                    else:
+                        line = pv.Line(registrar1_prone_landmarks.landmarks[vl_id][i], right_nipple)
+                    plotter.add_mesh(line, color="cyan", line_width=3, label='Line')
+                legend_entries = [['Images', 'grey'], ['Segmentation mask', 'lightskyblue'], ['Left_nipple', 'pink'],
+                                  ['Right_nipple', 'pink'], ['Closest skin points', 'green'],
+                                  ['Closest rib cage points', 'blue'],['Distance between landmarks and skin','yellow'],
+                                  ['Distance between landmarks and rib cage','magenta'],['Distance between landmarks and nipple','cyan']]
+
+                plotter.add_legend(legend_entries, bcolor='w')
+                plotter.add_text(f"VL{vl_id:05d} {position}", position='upper_left', font_size=10, color='black')
+                labels = dict(xlabel=f"{orientation_flag[0]} (mm)",
+                              ylabel=f"{orientation_flag[1]} (mm)",
+                              zlabel=f"{orientation_flag[2]} (mm)")
+                plotter.add_axes(**labels)
+                plotter.view_xy()
+
+                plotter.show()
 
     # Save the results to an Excel file
     df_r1 = pd.DataFrame({
@@ -177,9 +279,10 @@ if __name__ == '__main__':
         'Time (supine)': [time_r1_s[vl_id] for vl_id in vl_ids],
         'Quadrant (prone)': [quadrants_r1_p[vl_id] for vl_id in vl_ids],
         'Quadrant (supine)': [quadrants_r1_s[vl_id] for vl_id in vl_ids],
-        'Landmark displacement [mm]': landmarks_dispacement_r1
+        'Landmark displacement [mm]': landmarks_displacement_r1
     })
     print(df_r1)
+
     # Explode the list columns
     list_columns = [
         'Landmark number', 'Landmark type', 'Distance to nipple (prone) [mm]', 'Distance to nipple (supine) [mm]',
@@ -208,17 +311,106 @@ if __name__ == '__main__':
         'Time (supine)': [time_r2_s[vl_id] for vl_id in vl_ids],
         'Quadrant (prone)': [quadrants_r2_p[vl_id] for vl_id in vl_ids],
         'Quadrant (supine)': [quadrants_r2_s[vl_id] for vl_id in vl_ids],
-        'Landmark displacement [mm]': landmarks_dispacement_r2
+        'Landmark displacement [mm]': landmarks_displacement_r2
     })
     df_r2 = df_r2.explode(list_columns, ignore_index=True)
 
     df_combined = pd.concat([df_r1, df_r2], ignore_index=True)
 
-    df_combined.to_excel(excel_file, index=False)
+    # df_combined.to_excel(excel_file, index=False)
     print(f"Data saved to {excel_file}")
 
+    ''' Plot the landmarks with respect to nipples in three planes '''
+    # prone registrar 1
+    landmarks_left = []
+    landmarks_right = []
+    distance_to_skin_left = []
+    distance_to_skin_right = []
+    for vl_id in vl_ids:
+        for i, side in enumerate(side_r1_p[vl_id]):
+            if side == 'LB':
+                nipple = prone_metadata[vl_id].left_nipple
+                landmarks_left.append(registrar1_prone_landmarks.landmarks[vl_id][i] - nipple)
+                distance_to_skin_left.append(dist_landmark_skin_r1_p[vl_id][i])
+            else:
+                nipple = prone_metadata[vl_id].right_nipple
+                landmarks_right.append(registrar1_prone_landmarks.landmarks[vl_id][i] - nipple)
+                distance_to_skin_right.append(dist_landmark_skin_r1_p[vl_id][i])
 
-    ''' PRONE POSITION '''
+    landmarks_left = np.array(landmarks_left)
+    landmarks_right = np.array(landmarks_right)
+    distance_to_skin_left = np.array(distance_to_skin_left)
+    distance_to_skin_right = np.array(distance_to_skin_right)
+    distance_to_skin_all = np.concatenate([distance_to_skin_left, distance_to_skin_right])
+
+    min_x = np.min(landmarks_right[:, 0])
+    max_x = np.max(landmarks_left[:, 0])
+    min_y = np.min(landmarks_right[:, 1])
+    max_y = np.max(landmarks_left[:, 1])
+    min_z = np.min(landmarks_right[:, 2])
+    max_z = np.max(landmarks_left[:, 2])
+    print('Min X:', min_x, 'Max X:', max_x)
+    print('Min Y:', min_y, 'Max Y:', max_y)
+    print('Min Z:', min_z, 'Max Z:', max_z)
+
+
+    # Define color map based on distances
+    norm = Normalize(vmin=distance_to_skin_all.min(), vmax=distance_to_skin_all.max())
+    cmap = plt.cm.viridis
+
+    fig_titles = ["Coronal View (Right Breast)", "Coronal View (Left Breast)",
+                  "Sagittal View (Right Breast)", "Sagittal View (Left Breast)",
+                  "Axial View (Right Breast)", "Axial View (Left Breast)"]
+    views = [(0, 2), (1, 2), (0, 1)]  # X-Z, Y-Z, X-Y indices for each view
+    x_labels = ["Right - Left", "Anterior - Posterior", " Right - Left"]
+    y_labels = ["Inferior - Superior", "Inferior - Superior", "Anterior - Posterior"]
+    # Axis limits and ticks for each view
+    axis_settings = [
+        {"xlim": (-60, 60), "ylim": (-60, 60), "xticks": np.arange(-60, 61, 20), "yticks": np.arange(-60, 61, 20)},
+        {"xlim": (0, 140), "ylim": (-60, 60), "xticks": np.arange(0, 141, 20), "yticks": np.arange(-60, 61, 20)},
+        {"xlim": (-60, 60), "ylim": (0, 140), "xticks": np.arange(-60, 61, 20), "yticks": np.arange(0, 141, 20)}
+    ]
+
+    # Plot in coronal, sagittal, and axial views
+    for i, view in enumerate(views):
+        fig, axs = plt.subplots(1, 2, figsize=(18, 6))
+
+        # Plot Left Breast
+        axs[0].scatter(landmarks_right[:, view[0]], landmarks_right[:, view[1]], c=distance_to_skin_right, cmap=cmap, s=100, edgecolor="k")
+        axs[0].set_title(f"{fig_titles[i]}")
+        axs[0].set_xlabel(f"{x_labels[i]}")
+        axs[0].set_ylabel(f"{y_labels[i]}")
+        axs[0].set_xlim(axis_settings[i]["xlim"])
+        axs[0].set_ylim(axis_settings[i]["ylim"])
+        axs[0].set_xticks(axis_settings[i]["xticks"])
+        axs[0].set_yticks(axis_settings[i]["yticks"])
+
+        # Plot Right Breast
+        axs[1].scatter(landmarks_left[:, view[0]], landmarks_left[:, view[1]], c=distance_to_skin_left, s=100, edgecolor="k")
+        axs[1].set_title(f"{fig_titles[i+1]}")
+        axs[1].set_xlabel(f"{x_labels[i]}")
+        axs[1].set_ylabel(f"{y_labels[i]}")
+        axs[1].set_xlim(axis_settings[i]["xlim"])
+        axs[1].set_ylim(axis_settings[i]["ylim"])
+        axs[1].set_xticks(axis_settings[i]["xticks"])
+        axs[1].set_yticks(axis_settings[i]["yticks"])
+
+        sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+        sm.set_array([])  # Empty array for the colorbar
+        fig.colorbar(sm, ax=axs.ravel().tolist(), orientation='vertical', label='DTS (mm)')
+
+        # Save the figure
+        fig_name = ["Coronal_View.png", "Sagittal_View.png", "Axial_View.png"]
+        fig_filename = os.path.join(fig_path, fig_name[i])
+        # plt.savefig(fig_filename, dpi=300)
+        print(f"Saved {fig_filename}")
+        plt.show()
+        # Close the figure to free up memory
+        plt.close(fig)
+
+'''
+
+    #PRONE POSITION
     # Plot the MR images and landmarks
     vl_id = vl_ids[0]
     closest_points_skin = closest_points_skin_r1_p
@@ -370,7 +562,7 @@ if __name__ == '__main__':
 
 
 
-    ''' SUPINE POSITION '''
+    #SUPINE POSITION
     # Plot the MR images and landmarks
     vl_id = vl_ids[0]
     closest_points_skin = closest_points_skin_r1_s
@@ -445,3 +637,4 @@ if __name__ == '__main__':
     plotter.view_xy()
 
     plotter.show()
+'''
