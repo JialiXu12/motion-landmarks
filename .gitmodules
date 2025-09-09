@@ -1,3 +1,6 @@
 [submodule "external/bmw"]
 	path = external/bmw
 	url = https://github.com/abi-breast-biomechanics-group/bmw.git
+[submodule "external/breast_metadata"]
+	path = external/breast_metadata
+	url = https://github.com/abi-breast-biomechanics-group/breast-metadata.git
