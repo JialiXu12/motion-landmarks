@@ -1,0 +1,3 @@
+[submodule "external/bmw"]
+	path = external/bmw
+	url = https://github.com/abi-breast-biomechanics-group/bmw.git
