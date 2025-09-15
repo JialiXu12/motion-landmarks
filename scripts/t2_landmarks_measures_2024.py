@@ -1,6 +1,5 @@
 import os
 import numpy as np
-import automesh
 from tools import landmarks_old as ld
 from tools import realignment_tools
 from tools import subjectModel

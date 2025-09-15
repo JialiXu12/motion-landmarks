@@ -3,13 +3,10 @@ import os
 import json
 import numpy as np
 import math
-import pydicom
 from scipy.spatial import cKDTree
 # Related third party imports
-from bmw import mesh_generation
 from tools import sitkTools
-from breast_metadata import breast_metadata
-import pyvista
+import breast_metadata
 
 
 class Metadata(object):
@@ -413,7 +410,7 @@ def writeLandmarks(proneLd, supineLd, filePath):
 #     dist, point_id = surface_tree.query(points)
 #     return dist, surface_points[point_id]
 
-def shortest_distances(metadata, masks_path, registrar_landmarks):
+def shortest_distances(metadata, masks_path, fallback_masks_path, registrar_landmarks):
     distances_skin = {}
     closest_points_skin = {}
     distances_rib = {}
@@ -424,16 +421,22 @@ def shortest_distances(metadata, masks_path, registrar_landmarks):
                                       'body\\body_VL{0:05d}.nii'.format(vl_id))
         rib_mask_path = os.path.join(masks_path, metadata[vl_id].position,
                                      'rib_cage\\rib_cage_VL{0:05d}.nii'.format(vl_id))
+        fallback_skin_mask_path = os.path.join(fallback_masks_path, metadata[vl_id].position,
+                                               'body\\body_VL{0:05d}.nii'.format(vl_id))
+        fallback_rib_mask_path = os.path.join(fallback_masks_path, metadata[vl_id].position,
+                                              'rib_cage\\rib_cage_VL{0:05d}.nii'.format(vl_id))
 
         # Check if skin mask path exists
-        if os.path.exists(skin_mask_path):
-            skin_mask = breast_metadata.readNIFTIImage(skin_mask_path, swap_axes=True)
+        if os.path.exists(skin_mask_path) or os.path.exists(fallback_skin_mask_path):
+            skin_mask = breast_metadata.readNIFTIImage(
+                skin_mask_path if os.path.exists(skin_mask_path) else fallback_skin_mask_path, swap_axes=True)
             skin_points = sitkTools.extract_contour_points(skin_mask, 100000)
             skin_points_kd_tree = cKDTree(skin_points)
 
             # Check if rib mask path exists
-            if os.path.exists(rib_mask_path):
-                rib_mask = breast_metadata.readNIFTIImage(rib_mask_path, swap_axes=True)
+            if os.path.exists(rib_mask_path) or os.path.exists(fallback_rib_mask_path):
+                rib_mask = breast_metadata.readNIFTIImage(
+                    rib_mask_path if os.path.exists(rib_mask_path) else fallback_rib_mask_path, swap_axes=True)
                 rib_points = sitkTools.extract_contour_points(rib_mask, 100000)
                 rib_points_kd_tree = cKDTree(rib_points)
 

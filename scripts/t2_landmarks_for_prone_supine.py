@@ -1,9 +1,7 @@
 import os
+import sys
 import numpy as np
-import automesh
 from tools import landmarks as ld
-from tools import realignment_tools
-from tools import subjectModel
 import pandas as pd
 import breast_metadata
 import pyvista as pv
@@ -26,8 +24,8 @@ from matplotlib.colors import Normalize
     'registrar2_prone': PRONE anatomical landmarks - nipple (user002) and sternum (user001) identified by the registrar 1
 
     Load:
-    1) breast tissue landmarks identified by registrars (soft landmarks)
-    2) 'prone_metadata': metadata for each volunteer (anatomical landmarks: nipple and sternum landmarks (rigid landmarks))
+    1) breast tissue landmarks (soft landmarks) identified by registrars 
+    2) 'prone_metadata': metadata for each volunteer (anatomical/rigid landmarks: nipple and sternum landmarks)
 
     The metadata includes the age, height, weight, nipple landmark position, and sternum landmark position 
     in the MRI coordinate. The metadata is used to transform the landmarks from the image coordinate system to the model
@@ -43,9 +41,10 @@ if __name__ == '__main__':
     # vl_ids = [11,12,17,31,64,77]
     # vl_ids = [9,11,12,14,15,17,18,19,20,22,25,29,30,31,32,34,35,36,37,38,39,40,41,42,44,45,46,47,48,49,50,51,52,
     #           54,56,57,58,59,60,61,63,64,65,66,67,68,69,70,71,72,74,75,76,77,78,79,81,82,84,85,86,87,88,89]
-    vl_ids = [9,11,12,14,15,17,18,19,20,22,25,29,30,31,32,34,35,36,37,38,39,40,41,42,44,45,46,47,48,49,50,51,52,
-              54,56,57,58,59,60,61,63,64,65,66,67,68,69,70,71,72,74,75,76,77,78,79,81,84,85,86,87,88,89]
-
+    # vl_ids = [9,11,12,14,15,17,18,19,20,22,25,29,30,31,32,34,35,36,37,38,39,40,41,42,44,45,46,47,48,49,50,51,52,
+    #           54,56,57,58,59,60,61,63,64,65,66,67,68,69,70,71,72,74,75,76,77,78,79,81,84,85,86,87,88,89]
+    # vl_ids = [11, 64, 77]
+    vl_ids = [11]
     # define all the paths
     mri_t2_images_root_path = r'U:\projects\volunteer_camri\old_data\mri_t2'
     # soft_landmarks_path = r'U:\sandbox\jxu759\motion_of_landmarks\prasad_data\T2-landmark-analysis-study\picker\points'
@@ -57,8 +56,8 @@ if __name__ == '__main__':
     nipple_path = os.path.join(rigid_landmarks_root_path, 'user002')
     sternum_path = os.path.join(rigid_landmarks_root_path, 'user001')
 
-    # masks_path = r'U:\sandbox\jxu759\motion_of_landmarks\anna_data\automatic_segmentation_CNN\T2_from_T1'
     masks_path = r'U:\sandbox\jxu759\motion_of_landmarks\anna_data\automatic_segmentation_CNN\T2'
+    fallback_masks_path = r'U:\sandbox\jxu759\motion_of_landmarks\anna_data\automatic_segmentation_CNN\T2_from_T1'
 
     prone_mesh_path = r'U:\sandbox\jxu759\motion_of_landmarks\prasad_data\prone_to_supine_t2\2017_09_06\volunteer_meshes'
     supine_mesh_path = r'U:\sandbox\jxu759\motion_of_landmarks\prasad_data\supine_to_prone_t2\2017-07-31'
@@ -141,15 +140,19 @@ if __name__ == '__main__':
     # Closest distances from landmark to skin and chest wall
     dist_landmark_skin_r1_p, closest_points_skin_r1_p, \
         dist_landmark_rib_r1_p, closest_points_rib_r1_p = ld.shortest_distances(prone_metadata, masks_path,
+                                                                                fallback_masks_path,
                                                                                 registrar1_prone_landmarks)
     dist_landmark_skin_r2_p, closest_points_r2_p, \
         dist_landmark_rib_r2_p, closest_points_rib_r2_p = ld.shortest_distances(prone_metadata, masks_path,
+                                                                                fallback_masks_path,
                                                                                 registrar2_prone_landmarks)
     dist_landmark_skin_r1_s, closest_points_skin_r1_s, \
         dist_landmark_rib_r1_s, closest_points_rib_r1_s = ld.shortest_distances(supine_metadata, masks_path,
+                                                                                fallback_masks_path,
                                                                                 registrar1_supine_landmarks)
     dist_landmark_skin_r2_s, closest_points_skin_r2_s, \
         dist_landmark_rib_r2_s, closest_points_rib_r2_s = ld.shortest_distances(supine_metadata, masks_path,
+                                                                                fallback_masks_path,
                                                                                 registrar2_supine_landmarks)
 
     # Landmark positions in time coordinates, distance to the nipple
@@ -176,7 +179,6 @@ if __name__ == '__main__':
         os.makedirs(fig_path)
 
     if plot_figures:
-        from tools import sitkTools
         for vl_id in vl_ids:
             prone_skin_mask_path = os.path.join(masks_path, r'prone\body\body_VL{0:05d}.nii'.format(vl_id))
             supine_skin_mask_path = os.path.join(masks_path, r'supine\body\body_VL{0:05d}.nii'.format(vl_id))

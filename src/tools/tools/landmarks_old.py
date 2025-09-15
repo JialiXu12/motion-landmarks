@@ -6,7 +6,9 @@ import math
 import pydicom
 from scipy.spatial import cKDTree
 # Related third party imports
-from bmw import mesh_generation
+#from bmw import mesh_generation
+from bmw.mesh_generation import check_mesh_quality
+
 from tools import sitkTools
 import pyvista
 

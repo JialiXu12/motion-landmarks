@@ -2,12 +2,22 @@
 # By default there is no requirements added here.
 # Add the requirements you need to this file.
 
-h5py==3.11.0
-dicom==0.9.9.post1
-mayavi==4.8.2
-configobj==5.0.8
-SimpleITK==2.3.1
-itk==5.4.0
-scikit-image==0.24.0
-pydicom==2.4.4
-pyvista==0.43.2
+
+#dicom==0.9.9.post1
+#mayavi==4.8.2 #Does not work with python 3.11
+#configobj==5.0.8
+
+
+
+scikit-learn==1.7.2
+pandas==1.5.3
+scikit-image==0.25.2
+pydicom==3.0.1
+pyvista==0.46.3
+numpy==1.26.4
+scipy==1.16.2
+matplotlib==3.9.4
+SimpleITK==2.5.2
+itk==5.4.4
+h5py==3.14.0
+nibabel==5.3.2

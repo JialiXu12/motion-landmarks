@@ -140,7 +140,7 @@ class Scan(object):
 
         for i, dicom_file in enumerate(dicom_files):
             try:
-                dcm = dicom.read_file(dicom_file)
+                dcm = dicom.dcmread(dicom_file)
                 valid_dicom = True
             except dicom.filereader.InvalidDicomError:
                 remove_files.append(i)
@@ -217,7 +217,7 @@ class Scan(object):
         self.init_values(rows, cols, slice_location.shape[0])
         for i, index in enumerate(sorted_index):
             self.filepaths.append(dicom_files[index])
-            self.insert_slice(i, dicom.read_file(dicom_files[index]).pixel_array)
+            self.insert_slice(i, dicom.dcmread(dicom_files[index]).pixel_array)
 
         self.values = np.swapaxes(self.values, 0, 1)
         self.setRaiOrientation()

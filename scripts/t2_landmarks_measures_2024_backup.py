@@ -1,12 +1,9 @@
 import os
 import numpy as np
-import automesh
 from tools import landmarks_old as ld
 from tools import realignment_tools
 from tools import subjectModel
 import h5py
-import breast_metadata
-import pyvista as pv
 
 if __name__ == '__main__':
     # Define dictionary in which the transformed jugular_landmarks are stored
