@@ -24,10 +24,10 @@ def align_prone_mesh_supine_mask(vl_id, mri_t2_images_prone_path, mri_t2_images_
     supine_image_grid = breast_metadata.SCANToPyvistaImageGrid(supine_scan, orientation_flag)
 
     #   load sternum, nipple, and landmarks position from metadata
-    sternum_prone = prone_metadata[vl_id].sternum_position
-    sternum_supine = supine_metadata[vl_id].sternum_position
-    nipple_prone = np.array(prone_metadata[vl_id].left_nipple, prone_metadata[vl_id].right_nipple)
-    nipple_supine = np.array(supine_metadata[vl_id].left_nipple, supine_metadata[vl_id].right_nipple)
+    sternum_prone = np.vstack([prone_metadata[vl_id].jugular_notch, prone_metadata[vl_id].sternum_position])
+    sternum_supine = np.vstack([supine_metadata[vl_id].jugular_notch, supine_metadata[vl_id].sternum_position])
+    nipple_prone = np.vstack([prone_metadata[vl_id].left_nipple, prone_metadata[vl_id].right_nipple])
+    nipple_supine = np.vstack([supine_metadata[vl_id].left_nipple, supine_metadata[vl_id].right_nipple])
 
     landmark_prone_r1 = np.array(registrar1_prone_landmarks.landmarks[vl_id])
     landmark_supine_r1 = np.array(registrar1_supine_landmarks.landmarks[vl_id])
@@ -87,7 +87,7 @@ def align_prone_mesh_supine_mask(vl_id, mri_t2_images_prone_path, mri_t2_images_
     landmark_supine_r2_transformed = (np.linalg.inv(T_optimal) @ np.hstack((landmark_supine_r2, ones)).T)[:-1, :].T
 
     #%%   evaluate displacement of landmarks
-    landmark_r1_displacement_vectors = landmark_prone_r1_transformed - landmark_supine_r1
+    landmark_r1_displacement_vectors = landmark_supine_r1 - landmark_prone_r1_transformed
     landmark_r1_displacement_magnitudes = np.linalg.norm(landmark_r1_displacement_vectors, axis=1)
     landmark_r2_displacement_vectors = landmark_prone_r2_transformed - landmark_supine_r2
     landmark_r2_displacement_magnitudes = np.linalg.norm(landmark_r2_displacement_vectors, axis=1)
@@ -142,10 +142,11 @@ def align_prone_mesh_supine_mask(vl_id, mri_t2_images_prone_path, mri_t2_images_
     prone_image_transformed = sitk.Resample(prone_image_sitk,supine_image_sitk, affine, sitk.sitkLinear, 1.0)
     prone_image_transformed = sitk.Cast(prone_image_transformed, sitk.sitkUInt8)
     print("Transformed image size:", prone_image_transformed.GetSize())
-    prone_image_transformed_grid = breast_metadata.SCANToPyvistaImageGrid(prone_image_transformed, orientation_flag)
 
     #   get pixel coordinates of landmarks
     prone_scan_transformed = breast_metadata.SITKToScan(prone_image_transformed, orientation_flag, load_dicom=False, swap_axes=True)
+    prone_image_transformed_grid = breast_metadata.SCANToPyvistaImageGrid(prone_scan_transformed, orientation_flag)
+
     sternum_prone_transformed_px = prone_scan_transformed.getPixelCoordinates(sternum_prone_transformed)
     sternum_supine_px = supine_scan.getPixelCoordinates(sternum_supine)
     nipple_prone_transformed_px = prone_scan_transformed.getPixelCoordinates(nipple_prone_transformed)
@@ -177,6 +178,11 @@ def align_prone_mesh_supine_mask(vl_id, mri_t2_images_prone_path, mri_t2_images_
 
     plotter.add_volume(prone_image_transformed_grid, opacity='sigmoid_8', cmap='grey', show_scalar_bar=False)
     plotter.add_volume(supine_image_grid, opacity='sigmoid_8', cmap='coolwarm', show_scalar_bar=False)
+
+    plotter.add_points(sternum_prone_transformed, render_points_as_spheres=True, color='red', point_size=10,
+        label='Aligned Prone Landmarks'
+    )
+
     plotter.add_legend()
     plotter.show()
 
