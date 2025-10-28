@@ -1,9 +1,10 @@
 [submodule "external/bmw"]
 	path = external/bmw
 	url = https://github.com/abi-breast-biomechanics-group/bmw.git
-[submodule "external/breast_metadata"]
-	path = external/breast_metadata
-	url = https://github.com/abi-breast-biomechanics-group/breast-metadata.git
 [submodule "external/automesh"]
 	path = external/automesh
 	url = https://github.com/abi-breast-biomechanics-group/automesh.git
+[submodule "external/breast_metadata_mdv"]
+	path = external/breast_metadata_mdv
+	url = https://github.com/abi-breast-biomechanics-group/breast-metadata.git
+	branch = mdv_updates

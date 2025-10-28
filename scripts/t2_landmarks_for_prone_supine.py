@@ -1,14 +1,23 @@
 import os
 import sys
+import math
+
 import numpy as np
 from tools import landmarks as ld
+from tools import align_prone_mesh_supine_seg as al
+
+# import morphic
 import pandas as pd
 import breast_metadata
 import pyvista as pv
 import copy
 import matplotlib.pyplot as plt
 from matplotlib.colors import Normalize
+from matplotlib.patches import Circle
+from matplotlib.backends.backend_pdf import PdfPages
 
+# import breast_metadata_mdv.breast_metadata as breast_metadata
+# from breast_metadata_mdv.examples.images.visualise_image_and_mesh import align_prone_supine as aps
 
 '''
     'soft_landmarks_path': contain all volunteer breast tissue landmarks (e.g., cyst, lymph node) 
@@ -35,8 +44,12 @@ from matplotlib.colors import Normalize
                                   image coordinate system).
 '''
 
+
+
+
 if __name__ == '__main__':
-    plot_figures = True
+    plot_figures = False
+    plot_figure_2 = True
     # volunteer IDs
     # vl_ids = [11,12,17,31,64,77]
     # vl_ids = [9,11,12,14,15,17,18,19,20,22,25,29,30,31,32,34,35,36,37,38,39,40,41,42,44,45,46,47,48,49,50,51,52,
@@ -44,7 +57,10 @@ if __name__ == '__main__':
     # vl_ids = [9,11,12,14,15,17,18,19,20,22,25,29,30,31,32,34,35,36,37,38,39,40,41,42,44,45,46,47,48,49,50,51,52,
     #           54,56,57,58,59,60,61,63,64,65,66,67,68,69,70,71,72,74,75,76,77,78,79,81,84,85,86,87,88,89]
     # vl_ids = [11, 64, 77]
-    vl_ids = [11]
+    # Available prone mesh:
+    # vl_ids = [25,29,30,31,34,35,36,37,38,39,40,41,42,44,45,46,47,48,49,50,51,52,
+    #           54,56,57,58,59,60,61,63,64,65,66,67,68,69,70,71,72,74,75,76,77,78,79,84,85,88,89]
+    vl_ids = [54, 77]
     # define all the paths
     mri_t2_images_root_path = r'U:\projects\volunteer_camri\old_data\mri_t2'
     # soft_landmarks_path = r'U:\sandbox\jxu759\motion_of_landmarks\prasad_data\T2-landmark-analysis-study\picker\points'
@@ -59,13 +75,15 @@ if __name__ == '__main__':
     masks_path = r'U:\sandbox\jxu759\motion_of_landmarks\anna_data\automatic_segmentation_CNN\T2'
     fallback_masks_path = r'U:\sandbox\jxu759\motion_of_landmarks\anna_data\automatic_segmentation_CNN\T2_from_T1'
 
-    prone_mesh_path = r'U:\sandbox\jxu759\motion_of_landmarks\prasad_data\prone_to_supine_t2\2017_09_06\volunteer_meshes'
-    supine_mesh_path = r'U:\sandbox\jxu759\motion_of_landmarks\prasad_data\supine_to_prone_t2\2017-07-31'
+    prone_rib_cage_mesh_path = r'U:\sandbox\jxu759\motion_of_landmarks\prasad_data\prone_to_supine_t2\2017_09_06\volunteer_meshes'
+    # supine_rib_cage_mask_path = r'U:\sandbox\jxu759\motion_of_landmarks\prasad_data\supine_to_prone_t2\2017-07-31'
     output_dir = r'..\output'
 
     # Process both prone and supine positions
     positions = ['prone', 'supine']
     results = {}
+
+
 
     for position in positions:
         # Load breast tissue landmarks identified by registrars
@@ -161,22 +179,97 @@ if __name__ == '__main__':
     side_r1_s, time_r1_s, quadrants_r1_s, dist_landmark_nipple_r1_s = ld.clock(registrar1_supine_landmarks, supine_metadata)
     side_r2_s, time_r2_s, quadrants_r2_s, dist_landmark_nipple_r2_s = ld.clock(registrar2_supine_landmarks, supine_metadata)
 
-    # Calculate the displacement of the landmarks between prone and supine positions
-    # landmarks_displacement = ld.landmark_displacement(registrar1_prone_landmarks, registrar1_supine_landmarks)
-    landmarks_displacement_r1 = [np.arange(1, len(registrar1_prone_landmarks.landmarks[vl_id])+1) for vl_id in vl_ids]
-    landmarks_displacement_r2 = [np.arange(1, len(registrar1_prone_landmarks.landmarks[vl_id])+1) for vl_id in vl_ids]
 
-    # define output paths
-    # registrar1_dist_output = os.path.join(output_dir, 'registrar_1_t2')
-    # if not os.path.exists(registrar1_dist_output):
-    #     os.mkdir(registrar1_dist_output)
-    # registrar2_dist_output = os.path.join(output_dir, 'registrar_2_t2')
-    # if not os.path.exists(registrar2_dist_output):
-    #     os.mkdir(registrar2_dist_output)
-    excel_file = "../output/landmarks_results.xlsx"
-    fig_path = "../output/figs"
-    if not os.path.exists(fig_path):
-        os.makedirs(fig_path)
+    # =================================================
+    # Calculate the displacement of the landmarks between prone and supine positions
+    orientation_flag = 'RAI'
+    prone_mesh_path = r'U:\sandbox\fpan017\meshes\new_workflow\ribcage\iter2'
+    supine_masks_path = r'U:\sandbox\jxu759\volunteer_seg\results\supine\rib_cage'
+
+    # Initialize dictionaries to store displacement data for each volunteer
+    landmark_r1_displacement_vectors_dict = {}
+    landmark_r1_displacement_magnitudes_dict = {}
+    landmark_r2_displacement_vectors_dict = {}
+    landmark_r2_displacement_magnitudes_dict = {}
+    X_left_dict = {}
+    V_left_dict = {}
+    X_right_dict = {}
+    V_right_dict = {}
+    sternum_error_dict = {}
+    landmark_r1_rel_nipple_vectors_dict = {}
+    landmark_r2_rel_nipple_vectors_dict = {}
+    landmark_r1_rel_nipple_mag_dict = {}
+    landmark_r2_rel_nipple_mag_dict = {}
+    nipple_displacement_vectors_dict = {}
+    nipple_displacement_magnitudes_dict = {}
+
+    for vl_id in vl_ids:
+        # Define file paths for the prone mesh and supine mask
+        prone_ribcage_mesh_path = os.path.join(prone_mesh_path, r'VL{0:05d}_ribcage_prone.mesh'.format(vl_id))
+
+        if os.path.exists(prone_ribcage_mesh_path):
+
+            supine_ribcage_seg_path = os.path.join(supine_masks_path, r'rib_cage_VL{0:05d}.nii.gz'.format(vl_id))
+
+            # Load prone and supine MRI images
+            mri_t2_images_prone_path = os.path.join(mri_t2_images_root_path, 'VL{0:05d}'.format(vl_id), "prone")
+            mri_t2_images_supine_path = os.path.join(mri_t2_images_root_path, 'VL{0:05d}'.format(vl_id), "supine")
+
+            landmark_r1_displacement_vectors, landmark_r1_displacement_magnitudes, \
+                landmark_r2_displacement_vectors, landmark_r2_displacement_magnitudes, \
+                landmark_r1_rel_nipple_vectors, landmark_r2_rel_nipple_vectors, \
+                landmark_r1_rel_nipple_mag, landmark_r2_rel_nipple_mag, \
+                nipple_displacement_vectors, nipple_displacement_magnitudes, \
+                X_left, V_left, X_right, V_right, \
+                sternum_error, rib_error_mag, T_optimal, res_optimal, prone_image_transformed = (
+                al.align_prone_mesh_supine_mask(vl_id, mri_t2_images_prone_path, mri_t2_images_supine_path,
+                                         prone_ribcage_mesh_path, supine_ribcage_seg_path, registrar1_prone_landmarks,
+                                         registrar1_supine_landmarks, registrar2_prone_landmarks,
+                                         registrar2_supine_landmarks,
+                                         prone_metadata, supine_metadata, orientation_flag))
+
+        else:
+            print(f"-> Skipping VL{vl_id:05d}: Prone mesh not found.")
+
+            n_r1 = len(registrar1_prone_landmarks.landmarks.get(vl_id, []))
+            n_r2 = len(registrar2_prone_landmarks.landmarks.get(vl_id, []))
+
+            landmark_r1_displacement_vectors = [[np.nan] * 3] * n_r1
+            landmark_r1_displacement_magnitudes = [np.nan] * n_r1
+            landmark_r2_displacement_vectors = [[np.nan] * 3] * n_r2
+            landmark_r2_displacement_magnitudes = [np.nan] * n_r2
+            landmark_r1_rel_nipple_vectors = [[np.nan] * 3] * n_r1
+            landmark_r2_rel_nipple_vectors = [[np.nan] * 3] * n_r2
+            landmark_r1_rel_nipple_mag = [np.nan] * n_r1
+            landmark_r2_rel_nipple_mag = [np.nan] * n_r1
+            nipple_displacement_vectors = [[np.nan] * 3, [np.nan] * 3]
+            nipple_displacement_magnitudes = [np.nan, np.nan]
+            X_left = [[np.nan] * 3] * n_r1
+            V_left = [[np.nan] * 3] * n_r1
+            X_right = [[np.nan] * 3] * n_r1
+            V_right = [[np.nan] * 3] * n_r1
+            sternum_error = np.nan
+
+        # Save results for each volunteer
+        landmark_r1_displacement_vectors_dict[vl_id] = landmark_r1_displacement_vectors
+        landmark_r1_displacement_magnitudes_dict[vl_id] = landmark_r1_displacement_magnitudes
+        landmark_r2_displacement_vectors_dict[vl_id] = landmark_r2_displacement_vectors
+        landmark_r2_displacement_magnitudes_dict[vl_id] = landmark_r2_displacement_magnitudes
+        X_left_dict[vl_id] = X_left
+        V_left_dict[vl_id] = V_left
+        X_right_dict[vl_id] = X_right
+        V_right_dict[vl_id] = V_right
+        sternum_error_dict[vl_id] = sternum_error
+        landmark_r1_rel_nipple_vectors_dict[vl_id] = landmark_r1_rel_nipple_vectors
+        landmark_r2_rel_nipple_vectors_dict[vl_id] = landmark_r2_rel_nipple_vectors
+        landmark_r1_rel_nipple_mag_dict[vl_id] = landmark_r1_rel_nipple_mag
+        landmark_r2_rel_nipple_mag_dict[vl_id] = landmark_r2_rel_nipple_mag
+        nipple_displacement_vectors_dict[vl_id] = nipple_displacement_vectors
+        nipple_displacement_magnitudes_dict[vl_id] = nipple_displacement_magnitudes
+
+    print(f"{sternum_error_dict=}")
+    # =================================================
+
 
     if plot_figures:
         for vl_id in vl_ids:
@@ -202,12 +295,11 @@ if __name__ == '__main__':
                 # Load example prone MRI images
                 mri_t2_images_path = os.path.join(mri_t2_images_root_path, 'VL{0:05d}'.format(vl_id), position)
                 mri_t2_images = breast_metadata.Scan(mri_t2_images_path)
-                orientation_flag = "RAI"
                 mri_t2_images_grid = breast_metadata.SCANToPyvistaImageGrid(mri_t2_images, orientation_flag)
 
-                skin_mask = breast_metadata.readNIFTIImage(skin_mask_path, swap_axes=True)
+                skin_mask = breast_metadata.readNIFTIImage(skin_mask_path, orientation_flag='RAI', swap_axes=True)
                 skin_mask_image_grid = breast_metadata.SCANToPyvistaImageGrid(skin_mask, orientation_flag)
-                rib_mask = breast_metadata.readNIFTIImage(rib_mask_path, swap_axes=True)
+                rib_mask = breast_metadata.readNIFTIImage(rib_mask_path, orientation_flag='RAI', swap_axes=True)
                 rib_mask_image_grid = breast_metadata.SCANToPyvistaImageGrid(rib_mask, orientation_flag)
 
                 plotter = pv.Plotter()
@@ -262,64 +354,195 @@ if __name__ == '__main__':
 
                 plotter.show()
 
+    if plot_figure_2:
+        for vl_id in vl_ids:
+            # Adjust these indices to match your data's coordinate system
+            # 0 = right-left (X-axis)
+            # 1 = anterior-posterior (Y-axis)
+            # 2 = inferior-superior (Z-axis)
+            # Based on the plot, X=right-left and Y=inf-sup
+            AXIS_X = 0
+            AXIS_Y = 2
+
+            # Define plot limits
+            lims = (-60, 60)
+
+            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 8.5))
+            fig.suptitle("Direction of landmark motion from prone to supine (R1 only)\n(with respect to the nipple)",
+                         fontsize=16)
+
+            X_right = X_right_dict[vl_id]
+            V_right = V_right_dict[vl_id]
+            X_left = X_left_dict[vl_id]
+            V_left = V_left_dict[vl_id]
+
+            # --- Plot 1: Right Breast ---
+            ax1.set_title("Coronal plane\nRight breast", loc='left', fontsize=12)
+            ax1.quiver(
+                X_right[:, AXIS_X], X_right[:, AXIS_Y],  # Arrow base (relative prone pos)
+                V_right[:, AXIS_X], V_right[:, AXIS_Y],  # Arrow vector (relative displacement)
+                angles='xy', scale_units='xy', scale=1, color='black'
+            )
+
+            # --- Plot 2: Left Breast ---
+            ax2.set_title("Coronal plane\nLeft breast", loc='left', fontsize=12)
+            ax2.quiver(
+                X_left[:, AXIS_X], X_left[:, AXIS_Y],  # Arrow base (relative prone pos)
+                V_left[:, AXIS_X], V_left[:, AXIS_Y],  # Arrow vector (relative displacement)
+                angles='xy', scale_units='xy', scale=1, color='black'
+            )
+
+            # --- Format both plots ---
+            for ax in [ax1, ax2]:
+                ax.set_xlabel("right-left (mm)")
+                ax.set_ylabel("inf-sup (mm)")
+
+                # Set limits and aspect ratio
+                ax.set_xlim(lims)
+                ax.set_ylim(lims)
+                ax.set_aspect('equal', adjustable='box')
+
+                # Add red nipple dot and quadrant lines
+                ax.plot(0, 0, 'ro', markersize=8, zorder=5)  # Nipple
+                ax.axhline(0, color='red', lw=1, zorder=0)
+                ax.axvline(0, color='red', lw=1, zorder=0)
+
+                # Add outer circle
+                circle = Circle((0, 0), lims[1], fill=False, color='black', lw=1)
+                ax.add_artist(circle)
+
+            # --- Add Quadrant Labels ---
+            # Note: These are mirrored for left vs. right
+            text_offset = lims[1] * 0.85
+            # Right Breast Quadrants
+            ax1.text(text_offset, text_offset, 'UI', ha='center', va='center', fontsize=14)
+            ax1.text(-text_offset, text_offset, 'UO', ha='center', va='center', fontsize=14)
+            ax1.text(text_offset, -text_offset, 'LI', ha='center', va='center', fontsize=14)
+            ax1.text(-text_offset, -text_offset, 'LO', ha='center', va='center', fontsize=14)
+
+            # Left Breast Quadrants
+            ax2.text(text_offset, text_offset, 'UO', ha='center', va='center', fontsize=14)
+            ax2.text(-text_offset, text_offset, 'UI', ha='center', va='center', fontsize=14)
+            ax2.text(text_offset, -text_offset, 'LO', ha='center', va='center', fontsize=14)
+            ax2.text(-text_offset, -text_offset, 'LI', ha='center', va='center', fontsize=14)
+
+            plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+            fig_filename = os.path.join("../output/figs", "Landmark motion with respect to nipple")
+            plt.savefig(fig_filename, dpi=300)
+            plt.show()
+
+    # define output paths
+    # registrar1_dist_output = os.path.join(output_dir, 'registrar_1_t2')
+    # if not os.path.exists(registrar1_dist_output):
+    #     os.mkdir(registrar1_dist_output)
+    # registrar2_dist_output = os.path.join(output_dir, 'registrar_2_t2')
+    # if not os.path.exists(registrar2_dist_output):
+    #     os.mkdir(registrar2_dist_output)
+    excel_file = "../output/landmarks_results_v1.xlsx"
+    fig_path = "../output/figs"
+    if not os.path.exists(fig_path):
+        os.makedirs(fig_path)
+
     # Save the results to an Excel file
-    df_r1 = pd.DataFrame({
-        'Registrar': [1] * len(vl_ids),
-        'VL_ID': vl_ids,
-        'Age': [prone_metadata[vl_id].age for vl_id in vl_ids],
-        'Height [m]': [prone_metadata[vl_id].height for vl_id in vl_ids],
-        'Weight [kg]': [prone_metadata[vl_id].weight for vl_id in vl_ids],
-        'Landmark number': [np.arange(1, len(registrar1_prone_landmarks.landmarks[vl_id])+1) for vl_id in vl_ids],
-        'Landmark type': [registrar1_prone_landmarks.landmark_types[vl_id] for vl_id in vl_ids],
-        'Distance to nipple (prone) [mm]': [dist_landmark_nipple_r1_p[vl_id] for vl_id in vl_ids],
-        'Distance to nipple (supine) [mm]': [dist_landmark_nipple_r1_s[vl_id] for vl_id in vl_ids],
-        'Distance to rib cage (prone) [mm]': [dist_landmark_rib_r1_p[vl_id] for vl_id in vl_ids],
-        'Distance to rib cage (supine) [mm]': [dist_landmark_rib_r1_s[vl_id] for vl_id in vl_ids],
-        'Distance to skin (prone) [mm]': [dist_landmark_skin_r1_p[vl_id] for vl_id in vl_ids],
-        'Distance to skin (supine) [mm]': [dist_landmark_skin_r1_s[vl_id] for vl_id in vl_ids],
-        'Time (prone)': [time_r1_p[vl_id] for vl_id in vl_ids],
-        'Time (supine)': [time_r1_s[vl_id] for vl_id in vl_ids],
-        'Quadrant (prone)': [quadrants_r1_p[vl_id] for vl_id in vl_ids],
-        'Quadrant (supine)': [quadrants_r1_s[vl_id] for vl_id in vl_ids],
-        'Landmark displacement [mm]': landmarks_displacement_r1
-    })
+    # Create a list to store all landmark data
+    r1_data = []
+
+    for vl_id in vl_ids:
+        num_landmarks = len(registrar1_prone_landmarks.landmarks[vl_id])
+
+        for i in range(num_landmarks):
+            row_data = {
+                'Registrar': 1,
+                'VL_ID': vl_id,
+                'Age': prone_metadata[vl_id].age,
+                'Height [m]': prone_metadata[vl_id].height,
+                'Weight [kg]': prone_metadata[vl_id].weight,
+                'Landmark number': i + 1,
+                'landmark side': side_r1_p[vl_id][i],
+                'Landmark type': registrar1_prone_landmarks.landmark_types[vl_id][i],
+                'Distance to nipple (prone) [mm]': dist_landmark_nipple_r1_p[vl_id][i],
+                'Distance to nipple (supine) [mm]': dist_landmark_nipple_r1_s[vl_id][i],
+                'Distance to rib cage (prone) [mm]': dist_landmark_rib_r1_p[vl_id][i],
+                'Distance to rib cage (supine) [mm]': dist_landmark_rib_r1_s[vl_id][i],
+                'Distance to skin (prone) [mm]': dist_landmark_skin_r1_p[vl_id][i],
+                'Distance to skin (supine) [mm]': dist_landmark_skin_r1_s[vl_id][i],
+                'Time (prone)': time_r1_p[vl_id][i],
+                'Time (supine)': time_r1_s[vl_id][i],
+                'Quadrant (prone)': quadrants_r1_p[vl_id][i],
+                'Quadrant (supine)': quadrants_r1_s[vl_id][i],
+                'Landmark displacement [mm]': landmark_r1_displacement_magnitudes_dict[vl_id][i],
+                'Landmark displacement relative to nipple [mm]': landmark_r1_rel_nipple_mag_dict[vl_id][i],
+                'Left nipple displacement [mm]': nipple_displacement_magnitudes_dict[vl_id][0],
+                'Right nipple displacement [mm]': nipple_displacement_magnitudes_dict[vl_id][1],
+                'Landmark displacement vector vx': landmark_r1_displacement_vectors_dict[vl_id][i][0],
+                'Landmark displacement vector vy': landmark_r1_displacement_vectors_dict[vl_id][i][1],
+                'Landmark displacement vector vz': landmark_r1_displacement_vectors_dict[vl_id][i][2],
+                'Landmark relative to nipple vector vx': landmark_r1_rel_nipple_vectors_dict[vl_id][i][0],
+                'Landmark relative to nipple vector vy': landmark_r1_rel_nipple_vectors_dict[vl_id][i][1],
+                'Landmark relative to nipple vector vz': landmark_r1_rel_nipple_vectors_dict[vl_id][i][2],
+                'Left nipple displacement vector vx': nipple_displacement_vectors_dict[vl_id][0][0],
+                'Left nipple displacement vector vy': nipple_displacement_vectors_dict[vl_id][0][1],
+                'Left nipple displacement vector vz': nipple_displacement_vectors_dict[vl_id][0][2],
+                'Right nipple displacement vector vx': nipple_displacement_vectors_dict[vl_id][1][0],
+                'Right nipple displacement vector vy': nipple_displacement_vectors_dict[vl_id][1][1],
+                'Right nipple displacement vector vz': nipple_displacement_vectors_dict[vl_id][1][2]
+            }
+            r1_data.append(row_data)
+
+    df_r1 = pd.DataFrame(r1_data)
     print(df_r1)
 
-    # Explode the list columns
-    list_columns = [
-        'Landmark number', 'Landmark type', 'Distance to nipple (prone) [mm]', 'Distance to nipple (supine) [mm]',
-        'Distance to rib cage (prone) [mm]', 'Distance to rib cage (supine) [mm]',
-        'Distance to skin (prone) [mm]', 'Distance to skin (supine) [mm]',
-        'Time (prone)', 'Time (supine)', 'Quadrant (prone)', 'Quadrant (supine)', 'Landmark displacement [mm]'
-    ]
 
-    df_r1 = df_r1.explode(list_columns, ignore_index=True)
+    # Create a list to store all landmark data for registrar 2
+    r2_data = []
 
-    df_r2 = pd.DataFrame({
-        'Registrar': [2] * len(vl_ids),
-        'VL_ID': vl_ids,
-        'Age': [prone_metadata[vl_id].age for vl_id in vl_ids],
-        'Height [m]': [prone_metadata[vl_id].height for vl_id in vl_ids],
-        'Weight [kg]': [prone_metadata[vl_id].weight for vl_id in vl_ids],
-        'Landmark number': [np.arange(1, len(registrar2_prone_landmarks.landmarks[vl_id]) + 1) for vl_id in vl_ids],
-        'Landmark type': [registrar2_prone_landmarks.landmark_types[vl_id] for vl_id in vl_ids],
-        'Distance to nipple (prone) [mm]': [dist_landmark_nipple_r2_p[vl_id] for vl_id in vl_ids],
-        'Distance to nipple (supine) [mm]': [dist_landmark_nipple_r2_s[vl_id] for vl_id in vl_ids],
-        'Distance to rib cage (prone) [mm]': [dist_landmark_rib_r2_p[vl_id] for vl_id in vl_ids],
-        'Distance to rib cage (supine) [mm]': [dist_landmark_rib_r2_s[vl_id] for vl_id in vl_ids],
-        'Distance to skin (prone) [mm]': [dist_landmark_skin_r2_p[vl_id] for vl_id in vl_ids],
-        'Distance to skin (supine) [mm]': [dist_landmark_skin_r2_s[vl_id] for vl_id in vl_ids],
-        'Time (prone)': [time_r2_p[vl_id] for vl_id in vl_ids],
-        'Time (supine)': [time_r2_s[vl_id] for vl_id in vl_ids],
-        'Quadrant (prone)': [quadrants_r2_p[vl_id] for vl_id in vl_ids],
-        'Quadrant (supine)': [quadrants_r2_s[vl_id] for vl_id in vl_ids],
-        'Landmark displacement [mm]': landmarks_displacement_r2
-    })
-    df_r2 = df_r2.explode(list_columns, ignore_index=True)
+    for vl_id in vl_ids:
+        num_landmarks = len(registrar2_prone_landmarks.landmarks[vl_id])
+
+        for i in range(num_landmarks):
+            row_data = {
+                'Registrar': 2,
+                'VL_ID': vl_id,
+                'Age': prone_metadata[vl_id].age,
+                'Height [m]': prone_metadata[vl_id].height,
+                'Weight [kg]': prone_metadata[vl_id].weight,
+                'Landmark number': i + 1,
+                'landmark side': side_r2_p[vl_id][i],
+                'Landmark type': registrar2_prone_landmarks.landmark_types[vl_id][i],
+                'Distance to nipple (prone) [mm]': dist_landmark_nipple_r2_p[vl_id][i],
+                'Distance to nipple (supine) [mm]': dist_landmark_nipple_r2_s[vl_id][i],
+                'Distance to rib cage (prone) [mm]': dist_landmark_rib_r2_p[vl_id][i],
+                'Distance to rib cage (supine) [mm]': dist_landmark_rib_r2_s[vl_id][i],
+                'Distance to skin (prone) [mm]': dist_landmark_skin_r2_p[vl_id][i],
+                'Distance to skin (supine) [mm]': dist_landmark_skin_r2_s[vl_id][i],
+                'Time (prone)': time_r2_p[vl_id][i],
+                'Time (supine)': time_r2_s[vl_id][i],
+                'Quadrant (prone)': quadrants_r2_p[vl_id][i],
+                'Quadrant (supine)': quadrants_r2_s[vl_id][i],
+                'Landmark displacement [mm]': landmark_r2_displacement_magnitudes_dict[vl_id][i],
+                'Landmark displacement relative to nipple [mm]': landmark_r2_rel_nipple_mag_dict[vl_id][i],
+                'Left nipple displacement [mm]': nipple_displacement_magnitudes_dict[vl_id][0],
+                'Right nipple displacement [mm]': nipple_displacement_magnitudes_dict[vl_id][1],
+                'Landmark displacement vector vx': landmark_r2_displacement_vectors_dict[vl_id][i][0],
+                'Landmark displacement vector vy': landmark_r2_displacement_vectors_dict[vl_id][i][1],
+                'Landmark displacement vector vz': landmark_r2_displacement_vectors_dict[vl_id][i][2],
+                'Landmark relative to nipple vector vx': landmark_r2_rel_nipple_vectors_dict[vl_id][i][0],
+                'Landmark relative to nipple vector vy': landmark_r2_rel_nipple_vectors_dict[vl_id][i][1],
+                'Landmark relative to nipple vector vz': landmark_r2_rel_nipple_vectors_dict[vl_id][i][2],
+                'Left nipple displacement vector vx': nipple_displacement_vectors_dict[vl_id][0][0],
+                'Left nipple displacement vector vy': nipple_displacement_vectors_dict[vl_id][0][1],
+                'Left nipple displacement vector vz': nipple_displacement_vectors_dict[vl_id][0][2],
+                'Right nipple displacement vector vx': nipple_displacement_vectors_dict[vl_id][1][0],
+                'Right nipple displacement vector vy': nipple_displacement_vectors_dict[vl_id][1][1],
+                'Right nipple displacement vector vz': nipple_displacement_vectors_dict[vl_id][1][2]
+            }
+            r2_data.append(row_data)
+
+    df_r2 = pd.DataFrame(r2_data)
 
     df_combined = pd.concat([df_r1, df_r2], ignore_index=True)
 
-    # df_combined.to_excel(excel_file, index=False)
+    df_combined.to_excel(excel_file, index=False)
     print(f"Data saved to {excel_file}")
 
     ''' Plot the landmarks with respect to nipples in three planes '''
@@ -404,11 +627,40 @@ if __name__ == '__main__':
         # Save the figure
         fig_name = ["Coronal_View.png", "Sagittal_View.png", "Axial_View.png"]
         fig_filename = os.path.join(fig_path, fig_name[i])
-        # plt.savefig(fig_filename, dpi=300)
+        plt.savefig(fig_filename, dpi=300)
         print(f"Saved {fig_filename}")
         plt.show()
         # Close the figure to free up memory
         plt.close(fig)
+
+
+
+    subjects = []
+    for vl_id in vl_ids:
+        # get sides and vectors (fall back to empty lists if missing)
+        sides = side_r1_p.get(vl_id, [])
+        rel_vecs = landmark_r1_rel_nipple_vectors_dict.get(vl_id, [])
+        disp_vecs = landmark_r1_displacement_vectors_dict.get(vl_id, [])
+
+        # indices for left/right
+        left_idx = [i for i, s in enumerate(sides) if s == 'LB']
+        right_idx = [i for i, s in enumerate(sides) if s != 'LB']
+
+
+        def make_array(src, idx):
+            if not idx:
+                return np.zeros((0, 3), dtype=float)
+            arr = np.asarray([src[i] if i < len(src) else [np.nan, np.nan, np.nan] for i in idx], dtype=float)
+            if arr.ndim == 1:
+                arr = arr.reshape(-1, 3)
+            return arr
+
+
+        X_left = make_array(rel_vecs, left_idx)
+        V_left = make_array(disp_vecs, left_idx)
+        X_right = make_array(rel_vecs, right_idx)
+        V_right = make_array(disp_vecs, right_idx)
+
 
 '''
 
@@ -418,11 +670,9 @@ if __name__ == '__main__':
     closest_points_skin = closest_points_skin_r1_p
     closest_points_rib = closest_points_rib_r1_p
 
-    # Load example prone MRI images
+    # Load example prone MRI images using cache
     mri_t2_images_prone_path = os.path.join(mri_t2_images_root_path, 'VL{0:05d}'.format(vl_ids[0]), 'prone')
-    mri_t2_images_prone = breast_metadata.Scan(mri_t2_images_prone_path)
-    orientation_flag = "RAI"
-    mri_t2_images_grid_prone = breast_metadata.SCANToPyvistaImageGrid(mri_t2_images_prone, orientation_flag)
+    mri_t2_images_prone, mri_t2_images_grid_prone = get_cached_scan(mri_t2_images_prone_path, orientation_flag)
 
     skin_mask_prone = breast_metadata.readNIFTIImage(prone_skin_mask_path, swap_axes=True)
     skin_mask_image_grid_prone = breast_metadata.SCANToPyvistaImageGrid(skin_mask_prone, orientation_flag)
@@ -572,21 +822,21 @@ if __name__ == '__main__':
 
     # Load example prone MRI images
     mri_t2_images_supine_path = os.path.join(mri_t2_images_root_path, 'VL{0:05d}'.format(vl_ids[0]), 'supine')
+    mri_t2_images_supine_path = os.path.join(mri_t2_images_root_path, 'VL{0:05d}'.format(vl_ids[0]), 'supine')
     mri_t2_images_supine = breast_metadata.Scan(mri_t2_images_supine_path)
-    orientation_flag = "RAI"
     mri_t2_images_grid_supine = breast_metadata.SCANToPyvistaImageGrid(mri_t2_images_supine, orientation_flag)
-
+    mri_t2_images_grid_supine = breast_metadata.SCANToPyvistaImageGrid(mri_t2_images_supine, orientation_flag)
+    skin_mask_supine = breast_metadata.readNIFTIImage(supine_skin_mask_path, swap_axes=True)
     skin_mask_supine = breast_metadata.readNIFTIImage(supine_skin_mask_path, swap_axes=True)
     skin_mask_image_grid_supine = breast_metadata.SCANToPyvistaImageGrid(skin_mask_supine, orientation_flag)
-
     from tools import sitkTools
     skin_points = sitkTools.extract_contour_points(skin_mask_supine, 100000)
-
+    skin_points = sitkTools.extract_contour_points(skin_mask_supine, 100000)
     plotter = pv.Plotter()
     opacity = np.linspace(0, 0.15, 100)
     plotter.add_volume(mri_t2_images_grid_supine, scalars='values', cmap='gray', opacity=opacity)
+    plotter.add_volume(mri_t2_images_grid_supine, scalars='values', cmap='gray', opacity=opacity)
     skin_mask_threshold = skin_mask_image_grid_supine.threshold(value=0.5)
-    # plotter.add_mesh(skin_mask_threshold, color='lightskyblue', opacity=0.2, show_scalar_bar=False)
     # left_nipple = np.array([[81.9419555664063, -66.75008704742683, -33.680382224490515]])
     # right_nipple = np.array([[-74.22015156855718, -65.497997141762, -28.90346372127533]])
     left_nipple = supine_metadata[vl_id].left_nipple
