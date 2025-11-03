@@ -1,13 +1,8 @@
 import os
 import numpy as np
-import automesh
 from tools import landmarks_old as ld
-from tools import realignment_tools
-from tools import subjectModel
-import h5py
 import breast_metadata
 import pyvista as pv
-import plot
 
 '''
     'soft_landmarks_path': contain all volunteer breast tissue landmarks (e.g., cyst, lymph node) 

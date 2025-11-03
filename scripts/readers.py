@@ -1,16 +1,17 @@
 import numpy as np
-import SimpleITK as sitk
 import json
 import os
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 from collections import defaultdict
+import external.breast_metadata_mdv.breast_metadata as breast_metadata
+
 
 # Import structures
 try:
-    from .structures import MRImage, AnatomicalLandmarks, RegistrarData, ScanData, Subject
+    from .structures import AnatomicalLandmarks, RegistrarData, ScanData, Subject
 except ImportError:
-    from structures import MRImage, AnatomicalLandmarks, RegistrarData, ScanData, Subject
+    from structures import AnatomicalLandmarks, RegistrarData, ScanData, Subject
 
 # --- Helper functions  ---
 def _read_single_point_json(json_path: Path, position: str) -> Optional[np.ndarray]:
@@ -32,83 +33,39 @@ def _read_single_point_json(json_path: Path, position: str) -> Optional[np.ndarr
     # Handle cases where the file exists but the point for the position doesn't
     return None
 
-def _safe_get_metadata(image: sitk.Image, key: str) -> Optional[str]:
-    """Safely get metadata from a SimpleITK image."""
-    if image.HasMetaDataKey(key):
-        return image.GetMetaData(key)
-    return None
-
-
-def _parse_dicom_metadata(image: sitk.Image) -> dict:
-    """Extracts age, weight, and height from DICOM tags."""
-    metadata = {}
-
-    # (0010, 1010) = Patient's Age
-    age_str = _safe_get_metadata(image, "0010|1010")
-    if age_str: metadata['age'] = age_str
-
-    # (0010, 1030) = Patient's Height (in meters)
-    height_str = _safe_get_metadata(image, "0010|1030")
-    if height_str:
-        try:
-            metadata['height'] = float(height_str)
-        except ValueError:
-            pass
-
-    # (0010, 1020) = Patient's Weight (in kg)
-    weight_str = _safe_get_metadata(image, "0010|1020")
-    if weight_str:
-        try:
-            metadata['weight'] = float(weight_str)
-        except ValueError:
-            pass
-
-    return metadata
 
 
 # --- Reader Functions ---
 
-def read_dicom_data(dicom_directory: Path) -> Tuple[MRImage, dict]:
+def read_dicom_data(dicom_directory: Path) -> Tuple['breast_metadata.Scan', dict]:
     """
-    Reads a DICOM series, extracts metadata, and forces the image
-    into 'RAI' orientation using SimpleITK.
+    Reads a DICOM series using the custom 'breast_metadata.Scan' class.
     """
     if not dicom_directory.is_dir():
         raise FileNotFoundError(f"DICOM directory not found: {dicom_directory}")
 
-    # --- Step 1: Load the image as it is on disk ---
-    reader = sitk.ImageSeriesReader()
-    dicom_names = reader.GetGDCMSeriesFileNames(str(dicom_directory))
-    if not dicom_names:
-        raise FileNotFoundError(f"No DICOM series found in {dicom_directory}")
+    try:
+        # --- 1. Load the scan using breast_metadata.Scan ---
+        # The __init__ automatically calls .load_files()
+        scan_obj = breast_metadata.Scan(str(dicom_directory))
 
-    # Read the header of the first file in the series
-    first_slice_image = sitk.ReadImage(dicom_names[0])
+        # --- 2. Check for successful load ---
+        # Based on your code, num_slices will be > 0 if load_files() succeeded.
+        if scan_obj.num_slices == 0:
+            raise IOError(f"Failed to load any DICOM slices from {dicom_directory}")
 
-    # Extract metadata from that first slice's header
-    subject_metadata = _parse_dicom_metadata(first_slice_image)
+        # --- 3. Extract metadata directly from attributes ---
+        subject_metadata = {
+            'age': scan_obj.age,
+            'weight': scan_obj.weight,
+            'height': scan_obj.height
+        }
 
-    reader.SetFileNames(dicom_names)
-    original_sitk_image = reader.Execute()
+        return scan_obj, subject_metadata
 
-    # --- Step 2: Re-orient the image to RAI ---
-    sitk_image = sitk.DICOMOrient(original_sitk_image, 'RAI')
-
-    # --- Step 3: Extract metadata from the re-oriented image ---
-    image_array = sitk.GetArrayFromImage(sitk_image)  # (Z, Y, X)
-    spacing = np.array(sitk_image.GetSpacing())  # (X, Y, Z)
-    origin = np.array(sitk_image.GetOrigin())  # (X, Y, Z)
-    orientation = np.array(sitk_image.GetDirection()).reshape(3, 3)
-
-    mri_image = MRImage(
-        image_array=image_array,
-        spacing=spacing,
-        origin=origin,
-        orientation=orientation
-    )
-
-    # subject_metadata = _parse_dicom_metadata(sitk_image)
-    return mri_image, subject_metadata
+    except Exception as e:
+        print(f'Error using breast_metadata.Scan on {dicom_directory.name}. Error: {e}')
+        raise IOError(f"Failed to load DICOM data from {dicom_directory}") from e
 
 
 def read_anatomical_landmarks(json_file: Path) -> AnatomicalLandmarks:
@@ -131,11 +88,20 @@ def read_anatomical_landmarks(json_file: Path) -> AnatomicalLandmarks:
         if not landmarks and 'Ray-Test' in bodies_dict:
             landmarks = bodies_dict['Ray-Test'].get('landmarks')
 
+        nl = landmarks["nipple-l"]["3d_position"]
+        nipple_left = np.array([nl['x'], nl['y'], nl['z']], dtype=float)
+        nr = landmarks["nipple-r"]["3d_position"]
+        nipple_right = np.array([nr['x'], nr['y'], nr['z']], dtype=float)
+        ss = landmarks["sternal-superior"]["3d_position"]
+        sternum_superior = np.array([ss['x'], ss['y'], ss['z']], dtype=float)
+        si = landmarks["sternal-inferior"]["3d_position"]
+        sternum_inferior = np.array([si['x'], si['y'], si['z']], dtype=float)
+
         return AnatomicalLandmarks(
-            nipple_left=np.array(landmarks["nipple-l"]),
-            nipple_right=np.array(landmarks["nipple-r"]),
-            sternum_superior=np.array(landmarks["sternal-superior"]),
-            sternum_inferior=np.array(landmarks["sternal-inferior"])
+            nipple_left=nipple_left,
+            nipple_right=nipple_right,
+            sternum_superior=sternum_superior,
+            sternum_inferior=sternum_inferior
         )
     except KeyError as e:
         print(f"Error parsing anatomical landmarks from {json_file}: Missing key {e}")
@@ -158,8 +124,13 @@ def read_all_registrar_data(
         return all_registrars_data
 
     # Loop through each item in the root (e.g., 'registrar_A', 'registrar_B')
-    for registrar_name in ["ben_reviewed","holly"]:
-        registrar_dir = soft_tissue_root / registrar_name
+    registrar_map = {
+        "anthony": "ben_reviewed",
+        "holly": "holly"
+    }
+
+    for registrar_name, folder_name in registrar_map.items():
+        registrar_dir = soft_tissue_root / folder_name
         if not registrar_dir.is_dir():
             print(f"Warning: Registrar directory not found: {registrar_dir}")
             continue
@@ -232,7 +203,7 @@ def _load_scan_data(
         )
 
     # 2. Load DICOM Image and Metadata
-    mri_image, subject_meta = read_dicom_data(dicom_dir)
+    scan_obj, subject_meta = read_dicom_data(dicom_dir)
 
     # 3. Load Anatomical Landmarks
     anatomical_landmarks = read_anatomical_landmarks(anatomical_json_path)
@@ -245,7 +216,7 @@ def _load_scan_data(
     # 5. Create the ScanData object
     scan_data = ScanData(
         position=position,
-        mri_image=mri_image,
+        scan_object=scan_obj,
         anatomical_landmarks=anatomical_landmarks,
         registrar_data=registrar_data
     )

@@ -1,15 +1,7 @@
 import numpy as np
 from dataclasses import dataclass, field
 from typing import Dict, Optional
-
-
-@dataclass
-class MRImage:
-    """Holds the 3D MRI image data and its essential metadata."""
-    image_array: np.ndarray
-    spacing: np.ndarray
-    origin: np.ndarray
-    orientation: np.ndarray
+import external.breast_metadata_mdv.breast_metadata as breast_metadata
 
 
 @dataclass
@@ -34,7 +26,7 @@ class ScanData:
     Holds all data specific to one scan position (e.g., "prone").
     """
     position: str
-    mri_image: MRImage
+    scan_object: 'breast_metadata.Scan'
     anatomical_landmarks: AnatomicalLandmarks
     registrar_data: Dict[str, RegistrarData] = field(default_factory=dict)
 
