@@ -519,7 +519,7 @@ def calculate_clockface_coordinates(
                     }
 
     # Convert defaultdicts to regular dicts for cleaner output
-    return json.loads(json.dumps(all_results))
+    return all_results
 
 
 def get_landmarks_as_array(scan: ScanData, registrar_name: str) -> np.ndarray:
