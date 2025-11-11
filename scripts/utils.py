@@ -3,7 +3,7 @@ import pyvista as pv
 import numpy as np
 import math
 import copy
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional, Callable, Dict, Any
 from skimage.segmentation import find_boundaries
 from scipy.spatial import cKDTree
 import external.breast_metadata_mdv.breast_metadata as breast_metadata
@@ -16,6 +16,9 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
 import pandas as pd
 import time
+from utils_plot import plot_all
+from scipy.spatial import KDTree
+import os
 
 try:
     from .structures import Subject, RegistrarData, ScanData
@@ -554,6 +557,275 @@ def apply_transform(points, T):
     return (T @ np.hstack((points, ones)).T)[:-1, :].T
 
 
+def plot_evaluate_alignment(
+        supine_pts: np.ndarray,
+        transformed_prone_mesh,
+        distances: np.ndarray = None,
+        idxs: np.ndarray = None,
+        worst_n: int = 50,
+        cmap: str = "viridis",
+        point_size: int = 5,
+        arrow_scale: float = 1.0,
+        show_scalar_bar: bool = True,
+        return_data: bool = False
+):
+    """
+    Visualise the supine point cloud colored by nearest-neighbour distance to the
+    transformed prone mesh/point-cloud and draw arrows for the worst N points.
+
+    Parameters:
+    - supine_pts: (M,3) numpy array of supine point coordinates.
+    - transformed_prone_pts_or_mesh: either a (K,3) numpy array of transformed
+      prone points, or a PyVista mesh/PolyData object already transformed into
+      the supine frame.
+    - distances: .
+    - worst_n: number of worst points to draw arrows for.
+    - cmap, point_size, arrow_scale: visual params.
+    - show_scalar_bar: whether to show the scalar bar for distances.
+    - return_data: if True, returns a dict with computed distances and nearest indices.
+
+    Returns:
+    - If return_data is True: {"distances": distances, "nearest_indices": idxs}
+      otherwise returns None.
+
+    Notes:
+    - This function does not modify any global state. It uses PyVista for
+      interactive 3D rendering.
+    """
+    # Validate inputs
+    supine_pts = np.asarray(supine_pts)
+    if supine_pts.ndim != 2 or supine_pts.shape[1] != 3:
+        raise ValueError("supine_pts must be shape (N,3)")
+
+    # Resolve transformed prone coordinates array for KD-tree and arrows
+    prone_pts_for_tree = None
+    prone_mesh_for_plot = None
+    try:
+        # If the caller passed a PyVista object, extract points for KDTree
+        if isinstance(transformed_prone_mesh, pv.PolyData) or isinstance(transformed_prone_mesh, pv.UnstructuredGrid):
+            prone_mesh_for_plot = transformed_prone_mesh
+            prone_pts_for_tree = np.asarray(prone_mesh_for_plot.points)
+        else:
+            prone_pts_for_tree = np.asarray(transformed_prone_mesh)
+    except Exception:
+        prone_pts_for_tree = np.asarray(transformed_prone_mesh)
+
+    if prone_pts_for_tree is None or len(prone_pts_for_tree) == 0:
+        raise ValueError("transformed_prone_pts_or_mesh contains no points")
+
+    # Create PyVista objects
+    sup_pd = pv.PolyData(supine_pts)
+    sup_pd["dist"] = distances
+
+    plotter = pv.Plotter()
+
+    # Add supine points coloured by distance
+    clim = (0.0, float(np.percentile(distances, 99))) if len(distances) > 0 else None
+    plotter.add_points(
+        sup_pd,
+        scalars="dist",
+        cmap=cmap,
+        point_size=point_size,
+        render_points_as_spheres=True,
+        lighting=False,
+        scalar_bar_args={"title": "Distance (mm)"} if show_scalar_bar else None,
+        clim=clim
+    )
+
+    # Overlay prone mesh or points
+    if prone_mesh_for_plot is not None:
+        # semi-transparent mesh if available
+        try:
+            plotter.add_mesh(prone_mesh_for_plot, color="tan", opacity=0.5, label="Transformed prone mesh")
+        except Exception:
+            # fallback to points
+            plotter.add_points(prone_pts_for_tree, color="tan", point_size=2, render_points_as_spheres=True)
+    else:
+        plotter.add_points(prone_pts_for_tree, color="tan", point_size=2, render_points_as_spheres=True)
+
+    # Draw arrows for the worst N supine points (largest distances)
+    worst_n_use = min(worst_n, supine_pts.shape[0])
+    if worst_n_use > 0:
+        worst_idx = np.argsort(distances)[-worst_n_use:]
+        worst_targets = supine_pts[worst_idx]
+        nearest_prone_pts = prone_pts_for_tree[idxs[worst_idx]]
+        vectors = nearest_prone_pts - worst_targets
+
+        # Build a PolyData of the worst target locations and attach vectors
+        worst_pd = pv.PolyData(worst_targets)
+        # Ensure vectors shape is (N,3)
+        worst_pd["vecs"] = vectors
+        # Create glyph arrows from the vectors
+        try:
+            arrows = worst_pd.glyph(orient="vecs", scale=False, factor=arrow_scale)
+            plotter.add_mesh(arrows, color="red", label=f"Top {worst_n_use} errors")
+        except Exception:
+            # If glyph fails (e.g. very small vectors), add simple line segments instead
+            for p, v in zip(worst_targets, vectors):
+                line = pv.Line(p, p + v * arrow_scale)
+                plotter.add_mesh(line, color="red")
+
+    plotter.add_axes()
+    plotter.add_legend()
+    plotter.show()
+
+    if return_data:
+        return {"distances": distances, "nearest_indices": idxs}
+
+
+def filter_point_cloud_asymmetric(points, reference, tol_min, tol_max, axis):
+    """
+    Filters points along an axis using different tolerances for min and max bounds.
+    """
+    min_ref = np.min(reference[:, axis])
+    max_ref = np.max(reference[:, axis])
+
+    keep_idx = [idx for idx, pt in enumerate(points)
+                if min_ref + tol_min < pt[axis] < max_ref - tol_max]
+
+    points = points[keep_idx]
+    return points
+
+
+def clean_ribcage_point_cloud(
+        pc_data: np.ndarray,
+        image_spacing: tuple,
+        config_filepath: Optional[str] = None,  # File path for JSON configuration
+        asym_filter_func: Optional[Callable] = None,
+        # --- Geometric Cropping Parameters (Default values) ---
+        z_voxels_min_side: float = 20,
+        z_voxels_max_side: float = 5,
+        x_spine_offset: float = 25.0,
+        y_posterior_margin: float = 60.0,
+        z_inferior_margin: float = 25.0,
+        # --- Statistical Outlier Removal (SOR) Parameters (Default values) ---
+        sor_k_neighbors: int = 50,
+        sor_std_multiplier: float = 1.0,
+        run_plot_all: bool = False
+) -> np.ndarray:
+    # ----------------------------------------------------
+    # I. Configuration Loading and Setup
+    # ----------------------------------------------------
+    params = {
+        'z_voxels_min_side': z_voxels_min_side,
+        'z_voxels_max_side': z_voxels_max_side,
+        'x_spine_offset': x_spine_offset,
+        'y_posterior_margin': y_posterior_margin,
+        'z_inferior_margin': z_inferior_margin,
+        'sor_k_neighbors': sor_k_neighbors,
+        'sor_std_multiplier': sor_std_multiplier
+    }
+
+    if config_filepath and os.path.exists(config_filepath):
+        # Load parameters from file if it exists
+        try:
+            with open(config_filepath, 'r') as f:
+                loaded_params = json.load(f)
+            # Update function's local variables with loaded values
+            params.update(loaded_params)
+            print(f"INFO: Loaded parameters from {config_filepath}")
+        except Exception as e:
+            print(f"WARNING: Could not load parameters from file: {e}. Using defaults/provided args.")
+
+    # Update local variables for use in the rest of the function
+    z_voxels_min_side = params['z_voxels_min_side']
+    z_voxels_max_side = params['z_voxels_max_side']
+    x_spine_offset = params['x_spine_offset']
+    y_posterior_margin = params['y_posterior_margin']
+    z_inferior_margin = params['z_inferior_margin']
+    sor_k_neighbors = params['sor_k_neighbors']
+    sor_std_multiplier = params['sor_std_multiplier']
+
+    # ----------------------------------------------------
+    # II. Filtering Logic
+    # ----------------------------------------------------
+    # Start with a copy to avoid modifying the input array outside the function
+    filtered_pc = pc_data.copy()
+    initial_shape = filtered_pc.shape[0]
+    print(f"\n--- Cleaning Point Cloud (Initial Size: {initial_shape}) ---")
+
+    # 1. Custom Asymmetric Filter (Top/Bottom Axial Slices)
+    if asym_filter_func is not None:
+        try:
+            z_spacing = image_spacing[2]
+            filtered_pc = asym_filter_func(
+                points=filtered_pc,
+                reference=pc_data,  # Using original data as reference might be safer
+                tol_min=z_spacing * z_voxels_min_side,
+                tol_max=z_spacing * z_voxels_max_side,
+                axis=2
+            )
+            print(f"1. Asymmetric Z-Filter applied. Size: {filtered_pc.shape[0]}")
+            if run_plot_all: plot_all(point_cloud=filtered_pc)
+        except Exception as e:
+            print(f"WARNING: Asymmetric filter failed. Skipping. Error: {e}")
+
+    # 2. Geometric Cropping (Spine and Posterior/Inferior Regions)
+    # Calculate medians needed for the filter
+    x_median = np.median(filtered_pc[:, 0])
+
+
+    # X-Axis (Spine Exclusion): Keep points far from the center (outside spine)
+    x_spine_mask_keep = (
+            (filtered_pc[:, 0] <= (x_median - x_spine_offset)) |
+            (filtered_pc[:, 0] >= (x_median + x_spine_offset))
+    )
+
+    # Y-Axis (Posterior Exclusion): Calculate boundary from max Y (Anterior)
+    y_keep_boundary = np.max(filtered_pc[:, 1]) - y_posterior_margin
+    y_mask_keep = (filtered_pc[:, 1] > y_keep_boundary)
+
+    # Z-Axis (Inferior Exclusion): Calculate boundary from min Z (Inferior)
+    z_keep_boundary = np.min(filtered_pc[:, 2]) + z_inferior_margin
+    z_mask_keep = (filtered_pc[:, 2] > z_keep_boundary)
+
+    # Combine all KEEP masks using the AND operator (&)
+    geometric_keep_mask = x_spine_mask_keep & y_mask_keep & z_mask_keep
+
+    filtered_pc = filtered_pc[geometric_keep_mask]
+
+    print(f"2. Geometric Cropping applied (Spine, Back, Bottom). Size: {filtered_pc.shape[0]}")
+    if run_plot_all: plot_all(point_cloud=filtered_pc)
+
+    # 3. Statistical Outlier Removal (SOR)
+
+    if filtered_pc.shape[0] == 0:
+        print("WARNING: Point cloud is empty after geometric filtering. Skipping SOR.")
+        return filtered_pc
+
+    try:
+        tree = KDTree(filtered_pc)
+        distances, _ = tree.query(filtered_pc, k=sor_k_neighbors + 1)
+        kth_dist = distances[:, sor_k_neighbors]
+
+        mean_dist = np.mean(kth_dist)
+        std_dev = np.std(kth_dist)
+        threshold = mean_dist + sor_std_multiplier * std_dev
+
+        inliers_mask = kth_dist < threshold
+        filtered_pc = filtered_pc[inliers_mask]
+
+        print(f"3. Statistical Outlier Removal (SOR) applied. Size: {filtered_pc.shape[0]}")
+        if run_plot_all: plot_all(point_cloud=filtered_pc)
+
+    except Exception as e:
+        print(f"WARNING: SOR filtering failed. Skipping. Error: {e}")
+
+    # ----------------------------------------------------
+    # III. Configuration Saving
+    # ----------------------------------------------------
+    if config_filepath and not os.path.exists(config_filepath):
+        # Save the parameters used (including loaded ones) only if the file didn't exist initially
+        try:
+            with open(config_filepath, 'w') as f:
+                json.dump(params, f, indent=4)
+            print(f"INFO: Saved current parameters to {config_filepath}")
+        except Exception as e:
+            print(f"WARNING: Could not save parameters to file: {e}")
+
+    return filtered_pc
+
+
 def align_prone_to_supine(
         subject: Subject,
         prone_ribcage_mesh_path: Path,
@@ -617,14 +889,105 @@ def align_prone_to_supine(
     supine_ribcage_pc = extract_contour_points(supine_ribcage_mask, 20000)
 
     # --- 6. Clean up Supine Point Cloud ---
-    supine_ribcage_pc = supine_ribcage_pc[supine_ribcage_pc[:, 0] > -120.]
+    print("original supine ribcage point cloud size:", supine_ribcage_pc.shape)
+    plot_all(point_cloud=supine_ribcage_pc)
+
+    # supine_ribcage_pc = supine_ribcage_pc[supine_ribcage_pc[:, 0] > -120.]
+    # print("remove outlier near arm, supine ribcage point cloud size:", supine_ribcage_pc.shape)
+    # plot_all(point_cloud=supine_ribcage_pc)
+
+
     #   remove points on the top and bottom axial slices
-    supine_ribcage_pc = aps.filter_point_cloud(
-        supine_ribcage_pc, supine_ribcage_pc, supine_image_grid.spacing[2] * 10, axis=2)
+    supine_ribcage_pc = filter_point_cloud_asymmetric(
+        points=supine_ribcage_pc,
+        reference=supine_ribcage_pc,
+        tol_min=supine_image_grid.spacing[2] * 20,  # Remove 15 voxels from the bottom/MIN side
+        tol_max=supine_image_grid.spacing[2] * 5,  # Remove 5 voxels from the top/MAX side
+        axis=2
+    )
+    print("remove top and bottom axial slices, supine ribcage point cloud size:", supine_ribcage_pc.shape)
+    plot_all(point_cloud=supine_ribcage_pc)
+
+
     #   remove points on the back side of the ribcage around the spine
+    # supine_ribcage_pc = supine_ribcage_pc[
+    #     (supine_ribcage_pc[:, 0] <= -10.) | (supine_ribcage_pc[:, 0] >= 40.) |
+    #     (supine_ribcage_pc[:, 1] < np.max(supine_ribcage_pc[:, 1]) - 60)]
+
+    x_median = np.median(supine_ribcage_pc[:, 0])
+    x_offset = 25.
+    y_posterior_margin = 60.
     supine_ribcage_pc = supine_ribcage_pc[
-        (supine_ribcage_pc[:, 0] <= -10.) | (supine_ribcage_pc[:, 0] >= 40.) |
-        (supine_ribcage_pc[:, 1] < np.max(supine_ribcage_pc[:, 1]) - 60)]
+        (supine_ribcage_pc[:, 0] <= (x_median - x_offset)) |
+        (supine_ribcage_pc[:, 0] >= (x_median + x_offset)) |
+        (supine_ribcage_pc[:, 1] < np.max(supine_ribcage_pc[:, 1]) - y_posterior_margin)
+        ]
+    print("remove spine region, supine ribcage point cloud size:", supine_ribcage_pc.shape)
+    plot_all(point_cloud=supine_ribcage_pc)
+
+    # x_offset = 100.
+    # y_median = np.median(supine_ribcage_pc[:, 1])
+    # y_offset = 50.
+    # supine_ribcage_pc = supine_ribcage_pc[
+    #     (supine_ribcage_pc[:, 0] <= (x_median - x_offset)) |
+    #     (supine_ribcage_pc[:, 0] >= (x_median + x_offset)) |
+    #     (supine_ribcage_pc[:, 1] <= (y_median - y_offset)) |
+    #     (supine_ribcage_pc[:, 1] >= (y_median + y_offset))
+    #     ]
+    #
+    # plot_all(point_cloud=supine_ribcage_pc)
+
+
+    x_offset = 90.
+    z_offset = 25.
+    supine_ribcage_pc_filtered = supine_ribcage_pc[
+        (supine_ribcage_pc[:, 0] <= (x_median - x_offset)) |
+        (supine_ribcage_pc[:, 0] >= (x_median + x_offset)) |
+        (supine_ribcage_pc[:, 1] < np.max(supine_ribcage_pc[:, 1]) - y_posterior_margin)  |
+        (supine_ribcage_pc[:, 2] >= (np.min(supine_ribcage_pc[:, 2] + z_offset)))
+        ]
+
+    supine_ribcage_pc = supine_ribcage_pc_filtered
+    print("remove posterior inferior points, supine ribcage point cloud size:", supine_ribcage_pc.shape)
+    plot_all(point_cloud=supine_ribcage_pc)
+
+
+    from scipy.spatial import KDTree
+    point_cloud_data = supine_ribcage_pc.copy()
+
+    # --- Filter Parameters (Tuning Required) ---
+    K_NEIGHBORS = 50  # Number of neighbors to consider (adjust 20-50)
+    STD_MULTIPLIER = 1.0  # Standard deviation multiplier (adjust 1.0-2.5)
+    # -------------------------------------------
+
+    # 1. Build a KD-Tree for fast nearest neighbor lookups
+    try:
+        tree = KDTree(point_cloud_data)
+    except Exception as e:
+        print(f"ERROR: Could not build KDTree. Ensure point_cloud_data is a valid (N, 3) NumPy array. Error: {e}")
+        # Fallback to avoid error
+        return
+
+    # 2. Find the distance to the K-th nearest neighbor for every point
+    # Query K+1 because the first neighbor is the point itself (distance 0).
+    distances, _ = tree.query(point_cloud_data, k=K_NEIGHBORS + 1)
+    kth_dist = distances[:, K_NEIGHBORS]
+
+    # 3. Calculate the statistical threshold (Mean + alpha * StdDev)
+    mean_dist = np.mean(kth_dist)
+    std_dev = np.std(kth_dist)
+    threshold = mean_dist + STD_MULTIPLIER * std_dev
+
+    # 4. Filter the points
+    # Keep points whose k-th neighbor distance is SMALLER than the calculated threshold
+    inliers_mask = kth_dist < threshold
+    supine_ribcage_pc_filtered = point_cloud_data[inliers_mask]
+
+    # Update the original variable
+    supine_ribcage_pc = supine_ribcage_pc_filtered
+    print("remove outliers, supine ribcage point cloud size:", supine_ribcage_pc.shape)
+    plot_all(point_cloud=supine_ribcage_pc)
+
 
     # ==========================================================
     # %% INITIAL ALIGNMENT
@@ -701,12 +1064,14 @@ def align_prone_to_supine(
 
     prone_pos_left = landmark_prone_r1_transformed[is_closer_to_left]
     land_disp_left = landmark_r1_displacement_vectors[is_closer_to_left]
-    X_left = left_nipple_prone - prone_pos_left
+    # X_left = left_nipple_prone - prone_pos_left
+    X_left = prone_pos_left - left_nipple_prone
     V_left = left_nipple_displacement_vectors - land_disp_left
 
     prone_pos_right = landmark_prone_r1_transformed[~is_closer_to_left]
     land_disp_right = landmark_r1_displacement_vectors[~is_closer_to_left]
-    X_right = right_nipple_prone - prone_pos_right
+    # X_right = right_nipple_prone - prone_pos_right
+    X_right = prone_pos_right - right_nipple_prone
     V_right = right_nipple_displacement_vectors - land_disp_right
 
     # ==========================================================
@@ -717,7 +1082,7 @@ def align_prone_to_supine(
     AXIS_Y = 2
 
     # Define plot limits
-    lims = (-60, 60)
+    lims = (-100, 100)
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 8.5))
     fig.suptitle("Direction of landmark motion from prone to supine (R1 only)\n(with respect to the nipple)",
@@ -802,6 +1167,24 @@ def align_prone_to_supine(
     rib_error_mag = np.linalg.norm(error, axis=1)
     print(f"Ribcage alignment error: {rib_error_mag} mm")
 
+    # Visualise supine point-cloud coloured by nearest distance to the transformed prone mesh
+    # and draw arrows at the worst residual points.
+    try:
+        plot_evaluate_alignment(
+            supine_pts=supine_ribcage_pc,
+            transformed_prone_mesh=ribcage_prone_mesh_transformed,
+            distances=rib_error_mag,
+            idxs=mapped_idx,
+            worst_n=60,
+            cmap="viridis",
+            point_size=3,
+            arrow_scale=20,
+            show_scalar_bar=True,
+            return_data=False
+        )
+    except Exception as e:
+        print(f"Could not visualise ribcage errors: {e}")
+
     # show statistics and distribution of projection errors
     aps.summary_stats(rib_error_mag)
     aps.plot_histogram(rib_error_mag, 5)
@@ -844,7 +1227,7 @@ def align_prone_to_supine(
     landmark_supine_r2_px = supine_scan.getPixelCoordinates(landmark_supine_r2)
 
     # %%   plot
-    # #the prone and supine ribcage point clouds before and after alignment
+    # plot prone and supine ribcage point clouds before and after alignment
     plotter = pv.Plotter()
     plotter.add_text("Landmark Displacement After Alignment", font_size=24)
 
@@ -878,9 +1261,10 @@ def align_prone_to_supine(
                        label='Supine Nipples'
                        )
     plotter.add_legend()
-    plotter.show(auto_close=False, interactive_update=True)
-    time.sleep(5)
-    plotter.close()
+    plotter.show()
+    # plotter.show(auto_close=False, interactive_update=True)
+    # time.sleep(5)
+    # plotter.close()
 
     # %%   scalar colour map (red-blue) to show alignment of prone transformed and supine MRIs
     breast_metadata.visualise_alignment_with_landmarks(
@@ -943,9 +1327,10 @@ def align_prone_to_supine(
                            label='Supine Landmarks')
         plotter.add_legend()
         plotter.add_axes()
-        plotter.show(auto_close=False, interactive_update=True)
-        time.sleep(5)
-        plotter.close()
+        plotter.show()
+        # plotter.show(auto_close=False, interactive_update=True)
+        # time.sleep(5)
+        # plotter.close()
 
 
     # ==========================================================
@@ -1047,11 +1432,6 @@ def save_results_to_excel(
                             return results_dict[vl_id][position][registrar_name][lm_name][data_key]
                     except (KeyError, TypeError):
                         return default
-
-                print(clockface_results[vl_id]["prone"])
-                print(clockface_results[vl_id]["prone"][registrar_name])
-                print(clockface_results[vl_id]["prone"][registrar_name][lm_name])
-                print(clockface_results[vl_id]["prone"][registrar_name][lm_name]["side"])
 
 
                 # --- Build the row for this single landmark ---
