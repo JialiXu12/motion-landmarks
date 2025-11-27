@@ -156,6 +156,7 @@ def read_all_registrar_data(
                     continue
 
                 point = _read_single_point_json(file_path, position)
+
                 if point is None:
                     continue
 
@@ -163,7 +164,7 @@ def read_all_registrar_data(
                 landmark_counts[landmark_type] += 1
                 key = f"{landmark_type}_{landmark_counts[landmark_type]}"
 
-                landmarks_dict[key] = point
+                landmarks_dict[key] = point.copy()
 
         # If we found landmarks, add this registrar's data
         if landmarks_dict:
@@ -203,7 +204,9 @@ def _load_scan_data(
         )
 
     # 2. Load DICOM Image and Metadata
-    scan_obj, subject_meta = read_dicom_data(dicom_dir)
+    # scan_obj, subject_meta = read_dicom_data(dicom_dir)
+    scan_obj = None
+    subject_meta = {}
 
     # 3. Load Anatomical Landmarks
     anatomical_landmarks = read_anatomical_landmarks(anatomical_json_path)
@@ -225,7 +228,7 @@ def _load_scan_data(
 
 
 # -----------------------------------------------------------------
-# 2. NEW main loader function. Call this from main.py
+# 2. Main loader function.
 # -----------------------------------------------------------------
 def load_subject(
         vl_id: int,

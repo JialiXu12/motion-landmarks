@@ -16,9 +16,11 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
 import pandas as pd
 import time
-from utils_plot import plot_all
+from utils_plot import plot_all, plot_vector_three_views, visualise_landmarks_distance
 from scipy.spatial import KDTree
 import os
+import open3d as o3d
+
 
 try:
     from .structures import Subject, RegistrarData, ScanData
@@ -79,6 +81,7 @@ def find_corresponding_landmarks(
         A dictionary where each volunteer ID maps to a list of corresponding
         landmark name pairs. e.g., {9: [["cyst_1", "cyst_1"], ["lymph_1", "lymph_2"]]}
     """
+    print("\n--- Find corresponding landmarks between registrars ---")
 
     corre = {}
 
@@ -201,6 +204,42 @@ def find_corresponding_landmarks(
     return corre, all_subjects_filtered
 
 
+def add_averaged_landmarks(all_subjects_filtered, correspondences):
+    averaged_subjects = {}
+    for vl_id, subj in all_subjects_filtered.items():
+        pairs = correspondences.get(vl_id, [])
+        subj_copy = copy_subject(subj)
+        for pos, scan in subj_copy.scans.items():
+            averaged_landmarks = {}
+            orig_reg = all_subjects_filtered[vl_id].scans[pos].registrar_data
+            r1 = orig_reg.get('anthony')
+            r2 = orig_reg.get('holly')
+            if not r1 or not r2:
+                continue
+            for name_a, name_b in pairs:
+                a = r1.soft_tissue_landmarks.get(name_a)
+                b = r2.soft_tissue_landmarks.get(name_b)
+                if a is None or b is None:
+                    continue
+                a_arr = np.asarray(a, dtype=float)
+                b_arr = np.asarray(b, dtype=float)
+                averaged_landmarks[name_a] = (a_arr + b_arr) / 2.0
+            if averaged_landmarks:
+                # Preserve original registrars (if present) and add 'average'
+                new_reg = {}
+                if 'anthony' in orig_reg:
+                    new_reg['anthony'] = orig_reg['anthony']
+                if 'holly' in orig_reg:
+                    new_reg['holly'] = orig_reg['holly']
+                # Add averaged landmarks under the 'average' key
+                new_reg['average'] = RegistrarData(soft_tissue_landmarks=averaged_landmarks)
+                scan.registrar_data = new_reg
+            else:
+                scan.registrar_data = {}
+        averaged_subjects[vl_id] = subj_copy
+    return averaged_subjects
+
+
 def generate_image_coordinates(image_shape, spacing):
     x, y, z = np.mgrid[0:image_shape[0],0:image_shape[1],0:image_shape[2]]
     x = x*spacing[0]
@@ -256,6 +295,7 @@ def calculate_landmark_distances(
             }
         }
     """
+    print("\n--- Calculating nearest distances between landmarks and nipples, rib, and skin ---")
 
     all_results = {}
 
@@ -309,7 +349,8 @@ def calculate_landmark_distances(
                 skin_neighborhood_avg = {}
                 rib_neighborhood_avg = {}
 
-                for lm_name, lm_coord in reg_data.soft_tissue_landmarks.items():
+                soft_tissue_landmarks_dict = reg_data.soft_tissue_landmarks
+                for lm_name, lm_coord in soft_tissue_landmarks_dict.items():
                     # Query Skin KDTree
                     skin_distance, skin_index = skin_kd_tree.query(lm_coord)
                     distances_skin[lm_name] = skin_distance
@@ -340,6 +381,8 @@ def calculate_landmark_distances(
                     "rib_neighborhood_avg": rib_neighborhood_avg
                 }
 
+            # visualise_landmarks_distance(vl_id,position,skin_mask, rib_mask, scan.registrar_data["anthony"].soft_tissue_landmarks, all_results)
+
     return all_results
 
 
@@ -363,12 +406,12 @@ def analyse_landmark_distances(
 
                 # Loop through registrars for landmark-specific data
                 for registrar_name, data in data_for_pos.items():
-                    # This check is now simpler
-                    if isinstance(data, dict):
-                        all_skin_distances.extend(data.get('skin_distances', {}).values())
-                        all_rib_distances.extend(data.get('rib_distances', {}).values())
-                        all_skin_neighborhood_avgs.extend(data.get('skin_neighborhood_avg', {}).values())
-                        all_rib_neighborhood_avgs.extend(data.get('rib_neighborhood_avg', {}).values())
+                    if registrar_name in ['anthony', 'holly']:
+                        if isinstance(data, dict):
+                            all_skin_distances.extend(data.get('skin_distances', {}).values())
+                            all_rib_distances.extend(data.get('rib_distances', {}).values())
+                            all_skin_neighborhood_avgs.extend(data.get('skin_neighborhood_avg', {}).values())
+                            all_rib_neighborhood_avgs.extend(data.get('rib_neighborhood_avg', {}).values())
 
     except Exception as e:
         print(f"Error analyzing results: {e}. Dictionary may be in wrong format.")
@@ -639,9 +682,9 @@ def plot_evaluate_alignment(
             plotter.add_mesh(prone_mesh_for_plot, color="tan", opacity=0.5, label="Transformed prone mesh")
         except Exception:
             # fallback to points
-            plotter.add_points(prone_pts_for_tree, color="tan", point_size=2, render_points_as_spheres=True)
+            plotter.add_points(prone_pts_for_tree, color="tan", point_size=3, render_points_as_spheres=True)
     else:
-        plotter.add_points(prone_pts_for_tree, color="tan", point_size=2, render_points_as_spheres=True)
+        plotter.add_points(prone_pts_for_tree, color="tan", point_size=3, render_points_as_spheres=True)
 
     # Draw arrows for the worst N supine points (largest distances)
     worst_n_use = min(worst_n, supine_pts.shape[0])
@@ -667,6 +710,14 @@ def plot_evaluate_alignment(
 
     plotter.add_axes()
     plotter.add_legend()
+
+    cam_pos = [
+        [378.6543811782509, 309.86957859927173, 490.0925163131904],
+        [-35.140107028421866, 15.381214203758844, -17.515439847958362],
+        [-0.5214522629375, -0.48151960895256674, 0.7044333919339199]
+    ]
+    plotter.camera_position = cam_pos
+
     plotter.show()
 
     if return_data:
@@ -685,152 +736,179 @@ def filter_point_cloud_asymmetric(points, reference, tol_min, tol_max, axis):
 
     points = points[keep_idx]
     return points
+#
 
-
-def clean_ribcage_point_cloud(
-        pc_data: np.ndarray,
-        image_spacing: tuple,
-        config_filepath: Optional[str] = None,  # File path for JSON configuration
-        asym_filter_func: Optional[Callable] = None,
-        # --- Geometric Cropping Parameters (Default values) ---
-        z_voxels_min_side: float = 20,
-        z_voxels_max_side: float = 5,
-        x_spine_offset: float = 25.0,
-        y_posterior_margin: float = 60.0,
-        z_inferior_margin: float = 25.0,
-        # --- Statistical Outlier Removal (SOR) Parameters (Default values) ---
-        sor_k_neighbors: int = 50,
-        sor_std_multiplier: float = 1.0,
-        run_plot_all: bool = False
-) -> np.ndarray:
-    # ----------------------------------------------------
-    # I. Configuration Loading and Setup
-    # ----------------------------------------------------
-    params = {
-        'z_voxels_min_side': z_voxels_min_side,
-        'z_voxels_max_side': z_voxels_max_side,
-        'x_spine_offset': x_spine_offset,
-        'y_posterior_margin': y_posterior_margin,
-        'z_inferior_margin': z_inferior_margin,
-        'sor_k_neighbors': sor_k_neighbors,
-        'sor_std_multiplier': sor_std_multiplier
-    }
-
-    if config_filepath and os.path.exists(config_filepath):
-        # Load parameters from file if it exists
-        try:
-            with open(config_filepath, 'r') as f:
-                loaded_params = json.load(f)
-            # Update function's local variables with loaded values
-            params.update(loaded_params)
-            print(f"INFO: Loaded parameters from {config_filepath}")
-        except Exception as e:
-            print(f"WARNING: Could not load parameters from file: {e}. Using defaults/provided args.")
-
-    # Update local variables for use in the rest of the function
-    z_voxels_min_side = params['z_voxels_min_side']
-    z_voxels_max_side = params['z_voxels_max_side']
-    x_spine_offset = params['x_spine_offset']
-    y_posterior_margin = params['y_posterior_margin']
-    z_inferior_margin = params['z_inferior_margin']
-    sor_k_neighbors = params['sor_k_neighbors']
-    sor_std_multiplier = params['sor_std_multiplier']
-
-    # ----------------------------------------------------
-    # II. Filtering Logic
-    # ----------------------------------------------------
-    # Start with a copy to avoid modifying the input array outside the function
-    filtered_pc = pc_data.copy()
-    initial_shape = filtered_pc.shape[0]
-    print(f"\n--- Cleaning Point Cloud (Initial Size: {initial_shape}) ---")
-
-    # 1. Custom Asymmetric Filter (Top/Bottom Axial Slices)
-    if asym_filter_func is not None:
-        try:
-            z_spacing = image_spacing[2]
-            filtered_pc = asym_filter_func(
-                points=filtered_pc,
-                reference=pc_data,  # Using original data as reference might be safer
-                tol_min=z_spacing * z_voxels_min_side,
-                tol_max=z_spacing * z_voxels_max_side,
-                axis=2
-            )
-            print(f"1. Asymmetric Z-Filter applied. Size: {filtered_pc.shape[0]}")
-            if run_plot_all: plot_all(point_cloud=filtered_pc)
-        except Exception as e:
-            print(f"WARNING: Asymmetric filter failed. Skipping. Error: {e}")
-
-    # 2. Geometric Cropping (Spine and Posterior/Inferior Regions)
-    # Calculate medians needed for the filter
-    x_median = np.median(filtered_pc[:, 0])
-
-
-    # X-Axis (Spine Exclusion): Keep points far from the center (outside spine)
-    x_spine_mask_keep = (
-            (filtered_pc[:, 0] <= (x_median - x_spine_offset)) |
-            (filtered_pc[:, 0] >= (x_median + x_spine_offset))
-    )
-
-    # Y-Axis (Posterior Exclusion): Calculate boundary from max Y (Anterior)
-    y_keep_boundary = np.max(filtered_pc[:, 1]) - y_posterior_margin
-    y_mask_keep = (filtered_pc[:, 1] > y_keep_boundary)
-
-    # Z-Axis (Inferior Exclusion): Calculate boundary from min Z (Inferior)
-    z_keep_boundary = np.min(filtered_pc[:, 2]) + z_inferior_margin
-    z_mask_keep = (filtered_pc[:, 2] > z_keep_boundary)
-
-    # Combine all KEEP masks using the AND operator (&)
-    geometric_keep_mask = x_spine_mask_keep & y_mask_keep & z_mask_keep
-
-    filtered_pc = filtered_pc[geometric_keep_mask]
-
-    print(f"2. Geometric Cropping applied (Spine, Back, Bottom). Size: {filtered_pc.shape[0]}")
-    if run_plot_all: plot_all(point_cloud=filtered_pc)
-
-    # 3. Statistical Outlier Removal (SOR)
-
-    if filtered_pc.shape[0] == 0:
-        print("WARNING: Point cloud is empty after geometric filtering. Skipping SOR.")
-        return filtered_pc
-
-    try:
-        tree = KDTree(filtered_pc)
-        distances, _ = tree.query(filtered_pc, k=sor_k_neighbors + 1)
-        kth_dist = distances[:, sor_k_neighbors]
-
-        mean_dist = np.mean(kth_dist)
-        std_dev = np.std(kth_dist)
-        threshold = mean_dist + sor_std_multiplier * std_dev
-
-        inliers_mask = kth_dist < threshold
-        filtered_pc = filtered_pc[inliers_mask]
-
-        print(f"3. Statistical Outlier Removal (SOR) applied. Size: {filtered_pc.shape[0]}")
-        if run_plot_all: plot_all(point_cloud=filtered_pc)
-
-    except Exception as e:
-        print(f"WARNING: SOR filtering failed. Skipping. Error: {e}")
-
-    # ----------------------------------------------------
-    # III. Configuration Saving
-    # ----------------------------------------------------
-    if config_filepath and not os.path.exists(config_filepath):
-        # Save the parameters used (including loaded ones) only if the file didn't exist initially
-        try:
-            with open(config_filepath, 'w') as f:
-                json.dump(params, f, indent=4)
-            print(f"INFO: Saved current parameters to {config_filepath}")
-        except Exception as e:
-            print(f"WARNING: Could not save parameters to file: {e}")
-
-    return filtered_pc
+# def clean_ribcage_point_cloud(
+#         pc_data: np.ndarray,
+#         image_grid: pv.ImageData,
+#         config_filepath: Optional[str] = None,  # File path for JSON configuration
+#         asym_filter_func: Optional[Callable] = None,
+#         # --- Geometric Cropping Parameters (Default values) ---
+#         z_voxels_bottom: float = 20,
+#         z_voxels_top: float = 5,
+#         x_spine_offset: float = 25.0,
+#         y_spine_offset: float = 60.0,
+#         x_lateral_margin: float = 90.0,
+#         y_posterior_margin: float = 60.0,
+#         z_inferior_margin: float = 25.0,
+#         # --- Statistical Outlier Removal (SOR) Parameters (Default values) ---
+#         sor_k_neighbors: int = 50,
+#         sor_std_multiplier: float = 1.0,
+#         run_plot_all: bool = True
+# ) -> np.ndarray:
+#     # ----------------------------------------------------
+#     # I. Configuration Loading and Setup
+#     # ----------------------------------------------------
+#     params = {
+#         'z_voxels_bottom': z_voxels_bottom,
+#         'z_voxels_top': z_voxels_top,
+#         'x_spine_offset': x_spine_offset,
+#         'y_spine_offset': y_spine_offset,
+#         'x_lateral_margin': x_lateral_margin,
+#         'y_posterior_margin': y_posterior_margin,
+#         'z_inferior_margin': z_inferior_margin,
+#         'sor_k_neighbors': sor_k_neighbors,
+#         'sor_std_multiplier': sor_std_multiplier
+#     }
+#
+#     if config_filepath and os.path.exists(config_filepath):
+#         # Load parameters from file if it exists
+#         try:
+#             with open(config_filepath, 'r') as f:
+#                 loaded_params = json.load(f)
+#             # Update function's local variables with loaded values
+#             params.update(loaded_params)
+#             print(f"INFO: Loaded parameters from {config_filepath}")
+#         except Exception as e:
+#             print(f"WARNING: Could not load parameters from file: {e}. Using defaults/provided args.")
+#
+#     # Update local variables for use in the rest of the function
+#     z_voxels_bottom = params['z_voxels_bottom']
+#     z_voxels_top = params['z_voxels_top']
+#     x_spine_offset = params['x_spine_offset']
+#     y_spine_offset = params['y_spine_offset']
+#     x_lateral_margin = params['x_lateral_margin']
+#     y_posterior_margin = params['y_posterior_margin']
+#     z_inferior_margin = params['z_inferior_margin']
+#     sor_k_neighbors = params['sor_k_neighbors']
+#     sor_std_multiplier = params['sor_std_multiplier']
+#
+#     # ----------------------------------------------------
+#     # II. Filtering Logic
+#     # ----------------------------------------------------
+#     print("original point cloud size:", pc_data.shape)
+#     if run_plot_all:
+#         plot_all(point_cloud=pc_data)
+#
+#     # supine_ribcage_pc = supine_ribcage_pc[supine_ribcage_pc[:, 0] > -120.]
+#     # print("remove outlier near arm, supine ribcage point cloud size:", supine_ribcage_pc.shape)
+#     # plot_all(point_cloud=supine_ribcage_pc)
+#
+#     # remove points on the top and bottom axial slices
+#     pc_data = filter_point_cloud_asymmetric(
+#         points=pc_data,
+#         reference=pc_data,
+#         tol_min=image_grid.spacing[2] * z_voxels_bottom,  # Remove 20 voxels from the bottom/MIN side
+#         tol_max=image_grid.spacing[2] * z_voxels_top,  # Remove 5 voxels from the top/MAX side
+#         axis=2
+#     )
+#
+#     print("remove top and bottom axial slices, point cloud size:", pc_data.shape)
+#     if run_plot_all:
+#         plot_all(point_cloud=pc_data)
+#
+#     # remove points on the back side of the ribcage around the spine
+#     x_median = np.median(pc_data[:, 0])
+#     pc_data = pc_data[
+#         (pc_data[:, 0] <= (x_median - x_spine_offset)) |
+#         (pc_data[:, 0] >= (x_median + x_spine_offset)) |
+#         (pc_data[:, 1] < np.max(pc_data[:, 1]) - y_spine_offset)
+#         ]
+#
+#     print("remove spine region, point cloud size:", pc_data.shape)
+#     if run_plot_all:
+#         plot_all(point_cloud=pc_data)
+#
+#     # x_offset = 100.
+#     # y_median = np.median(supine_ribcage_pc[:, 1])
+#     # y_offset = 50.
+#     # supine_ribcage_pc = supine_ribcage_pc[
+#     # (supine_ribcage_pc[:, 0] <= (x_median - x_offset)) |
+#     # (supine_ribcage_pc[:, 0] >= (x_median + x_offset)) |
+#     # (supine_ribcage_pc[:, 1] <= (y_median - y_offset)) |
+#     # (supine_ribcage_pc[:, 1] >= (y_median + y_offset))
+#     # ]
+#     #
+#     # plot_all(point_cloud=supine_ribcage_pc)
+#
+#
+#     pc_data = pc_data[
+#         (pc_data[:, 0] <= (x_median - x_lateral_margin)) |
+#         (pc_data[:, 0] >= (x_median + x_lateral_margin)) |
+#         (pc_data[:, 1] < np.max(pc_data[:, 1]) - y_posterior_margin) |
+#         (pc_data[:, 2] >= (np.min(pc_data[:, 2] + z_inferior_margin)))
+#         ]
+#
+#     print("remove posterior inferior points, point cloud size:", pc_data.shape)
+#     if run_plot_all:
+#         plot_all(point_cloud=pc_data)
+#
+#
+#     point_cloud_data = pc_data.copy()
+#     # 1. Build a KD-Tree for fast nearest neighbor lookups
+#     try:
+#         tree = KDTree(point_cloud_data)
+#     except Exception as e:
+#         print(f"ERROR: Could not build KDTree. Ensure point_cloud_data is a valid (N, 3) NumPy array. Error: {e}")
+#         return point_cloud_data
+#
+#     # 2. Find the distance to the K-th nearest neighbor for every point
+#     # Query K+1 because the first neighbor is the point itself (distance 0).
+#     distances, _ = tree.query(point_cloud_data, k=sor_k_neighbors + 1)
+#     kth_dist = distances[:, sor_k_neighbors]
+#
+#     # 3. Calculate the statistical threshold (Mean + alpha * StdDev)
+#     mean_dist = np.mean(kth_dist)
+#     std_dev = np.std(kth_dist)
+#     threshold = mean_dist + sor_std_multiplier * std_dev
+#
+#     # 4. Filter the points
+#     # Keep points whose k-th neighbor distance is SMALLER than the calculated threshold
+#     inliers_mask = kth_dist < threshold
+#     point_cloud_data_filtered = point_cloud_data[inliers_mask]
+#
+#     # Update the original variable
+#     pc_data = point_cloud_data_filtered
+#     print("remove outliers, point cloud size:", pc_data.shape)
+#     if run_plot_all:
+#         plot_all(point_cloud=pc_data)
+#
+#     # ----------------------------------------------------
+#     # III. Configuration Saving
+#     # ----------------------------------------------------
+#     if config_filepath and not os.path.exists(config_filepath):
+#         # Save the parameters used (including loaded ones) only if the file didn't exist initially
+#         try:
+#             config_dir = os.path.dirname(config_filepath)
+#             if config_dir and not os.path.exists(config_dir):
+#                 # Create the directory and any necessary parent directories
+#                 os.makedirs(config_dir, exist_ok=True)
+#             with open(config_filepath, 'w') as f:
+#                 json.dump(params, f, indent=4)
+#             print(f"INFO: Saved current parameters to {config_filepath}")
+#
+#         except Exception as e:
+#             print(f"WARNING: Could not save parameters to file: {e}")
+#
+#     return pc_data
 
 
 def align_prone_to_supine(
         subject: Subject,
         prone_ribcage_mesh_path: Path,
         supine_ribcage_seg_path: Path,
-        orientation_flag: str = 'RAI'
+        orientation_flag: str = 'RAI',
+        plot_for_debug: bool = False
 ) -> dict:
     """
     Adapts the alignment function to work with the new Subject data structure.
@@ -850,9 +928,9 @@ def align_prone_to_supine(
     prone_scan = subject.scans["prone"].scan_object
     supine_scan = subject.scans["supine"].scan_object
 
-    # --- 2. Convert Scans to Pyvista Image Grids ---
-    prone_image_grid = breast_metadata.SCANToPyvistaImageGrid(prone_scan, orientation_flag)
-    supine_image_grid = breast_metadata.SCANToPyvistaImageGrid(supine_scan, orientation_flag)
+    # # --- 2. Convert Scans to Pyvista Image Grids ---
+    # prone_image_grid = breast_metadata.SCANToPyvistaImageGrid(prone_scan, orientation_flag)
+    # supine_image_grid = breast_metadata.SCANToPyvistaImageGrid(supine_scan, orientation_flag)
 
     # --- 3. Load Anatomical Landmarks from Subject ---
     anat_prone = subject.scans["prone"].anatomical_landmarks
@@ -879,6 +957,8 @@ def align_prone_to_supine(
     landmark_supine_r1 = get_landmarks_as_array(supine_scan_data, "anthony")
     landmark_prone_r2 = get_landmarks_as_array(prone_scan_data, "holly")
     landmark_supine_r2 = get_landmarks_as_array(supine_scan_data, "holly")
+    landmark_prone_ave = get_landmarks_as_array(prone_scan_data, "average")
+    landmark_supine_ave = get_landmarks_as_array(supine_scan_data, "average")
 
     # --- 5. Load Ribcage Mesh and Mask ---
     prone_ribcage = morphic.Mesh(str(prone_ribcage_mesh_path))
@@ -888,109 +968,38 @@ def align_prone_to_supine(
 
     supine_ribcage_pc = extract_contour_points(supine_ribcage_mask, 20000)
 
-    # --- 6. Clean up Supine Point Cloud ---
-    print("original supine ribcage point cloud size:", supine_ribcage_pc.shape)
-    plot_all(point_cloud=supine_ribcage_pc)
-
-    # supine_ribcage_pc = supine_ribcage_pc[supine_ribcage_pc[:, 0] > -120.]
-    # print("remove outlier near arm, supine ribcage point cloud size:", supine_ribcage_pc.shape)
-    # plot_all(point_cloud=supine_ribcage_pc)
-
-
-    #   remove points on the top and bottom axial slices
     supine_ribcage_pc = filter_point_cloud_asymmetric(
         points=supine_ribcage_pc,
         reference=supine_ribcage_pc,
-        tol_min=supine_image_grid.spacing[2] * 20,  # Remove 15 voxels from the bottom/MIN side
-        tol_max=supine_image_grid.spacing[2] * 5,  # Remove 5 voxels from the top/MAX side
+        tol_min=0,  # Remove 20 voxels from the bottom/MIN side
+        tol_max=5,  # Remove 5 voxels from the top/MAX side
         axis=2
     )
-    print("remove top and bottom axial slices, supine ribcage point cloud size:", supine_ribcage_pc.shape)
-    plot_all(point_cloud=supine_ribcage_pc)
 
-
-    #   remove points on the back side of the ribcage around the spine
-    # supine_ribcage_pc = supine_ribcage_pc[
-    #     (supine_ribcage_pc[:, 0] <= -10.) | (supine_ribcage_pc[:, 0] >= 40.) |
-    #     (supine_ribcage_pc[:, 1] < np.max(supine_ribcage_pc[:, 1]) - 60)]
-
-    x_median = np.median(supine_ribcage_pc[:, 0])
-    x_offset = 25.
-    y_posterior_margin = 60.
-    supine_ribcage_pc = supine_ribcage_pc[
-        (supine_ribcage_pc[:, 0] <= (x_median - x_offset)) |
-        (supine_ribcage_pc[:, 0] >= (x_median + x_offset)) |
-        (supine_ribcage_pc[:, 1] < np.max(supine_ribcage_pc[:, 1]) - y_posterior_margin)
-        ]
-    print("remove spine region, supine ribcage point cloud size:", supine_ribcage_pc.shape)
-    plot_all(point_cloud=supine_ribcage_pc)
-
-    # x_offset = 100.
-    # y_median = np.median(supine_ribcage_pc[:, 1])
-    # y_offset = 50.
-    # supine_ribcage_pc = supine_ribcage_pc[
-    #     (supine_ribcage_pc[:, 0] <= (x_median - x_offset)) |
-    #     (supine_ribcage_pc[:, 0] >= (x_median + x_offset)) |
-    #     (supine_ribcage_pc[:, 1] <= (y_median - y_offset)) |
-    #     (supine_ribcage_pc[:, 1] >= (y_median + y_offset))
-    #     ]
-    #
-    # plot_all(point_cloud=supine_ribcage_pc)
-
-
-    x_offset = 90.
-    z_offset = 25.
-    supine_ribcage_pc_filtered = supine_ribcage_pc[
-        (supine_ribcage_pc[:, 0] <= (x_median - x_offset)) |
-        (supine_ribcage_pc[:, 0] >= (x_median + x_offset)) |
-        (supine_ribcage_pc[:, 1] < np.max(supine_ribcage_pc[:, 1]) - y_posterior_margin)  |
-        (supine_ribcage_pc[:, 2] >= (np.min(supine_ribcage_pc[:, 2] + z_offset)))
-        ]
-
-    supine_ribcage_pc = supine_ribcage_pc_filtered
-    print("remove posterior inferior points, supine ribcage point cloud size:", supine_ribcage_pc.shape)
-    plot_all(point_cloud=supine_ribcage_pc)
-
-
-    from scipy.spatial import KDTree
-    point_cloud_data = supine_ribcage_pc.copy()
-
-    # --- Filter Parameters (Tuning Required) ---
-    K_NEIGHBORS = 50  # Number of neighbors to consider (adjust 20-50)
-    STD_MULTIPLIER = 1.0  # Standard deviation multiplier (adjust 1.0-2.5)
-    # -------------------------------------------
-
-    # 1. Build a KD-Tree for fast nearest neighbor lookups
-    try:
-        tree = KDTree(point_cloud_data)
-    except Exception as e:
-        print(f"ERROR: Could not build KDTree. Ensure point_cloud_data is a valid (N, 3) NumPy array. Error: {e}")
-        # Fallback to avoid error
-        return
-
-    # 2. Find the distance to the K-th nearest neighbor for every point
-    # Query K+1 because the first neighbor is the point itself (distance 0).
-    distances, _ = tree.query(point_cloud_data, k=K_NEIGHBORS + 1)
-    kth_dist = distances[:, K_NEIGHBORS]
-
-    # 3. Calculate the statistical threshold (Mean + alpha * StdDev)
-    mean_dist = np.mean(kth_dist)
-    std_dev = np.std(kth_dist)
-    threshold = mean_dist + STD_MULTIPLIER * std_dev
-
-    # 4. Filter the points
-    # Keep points whose k-th neighbor distance is SMALLER than the calculated threshold
-    inliers_mask = kth_dist < threshold
-    supine_ribcage_pc_filtered = point_cloud_data[inliers_mask]
-
-    # Update the original variable
-    supine_ribcage_pc = supine_ribcage_pc_filtered
-    print("remove outliers, supine ribcage point cloud size:", supine_ribcage_pc.shape)
-    plot_all(point_cloud=supine_ribcage_pc)
+    # # --- 6. Clean up Supine Point Cloud ---
+    # vl_id_str = subject.subject_id
+    # supine_ribcage_pc = clean_ribcage_point_cloud(
+    #     pc_data=supine_ribcage_pc,
+    #     image_grid=supine_image_grid,
+    #     config_filepath=f'../output/config/{vl_id_str}_config.json',
+    #     asym_filter_func=filter_point_cloud_asymmetric,
+    #     # --- Geometric Cropping Parameters (Default values) ---
+    #     z_voxels_bottom=20,
+    #     z_voxels_top=5,
+    #     x_spine_offset=25.0,
+    #     y_spine_offset=60.0,
+    #     x_lateral_margin=90.0,
+    #     y_posterior_margin=60.0,
+    #     z_inferior_margin=25.0,
+    #     # --- Statistical Outlier Removal (SOR) Parameters (Default values) ---
+    #     sor_k_neighbors=50,
+    #     sor_std_multiplier=1.0,
+    #     run_plot_all=True
+    # )
 
 
     # ==========================================================
-    # %% INITIAL ALIGNMENT
+    # %% INITIAL POINT TO POINT ALIGNMENT
     # ==========================================================
     rot_angle_init = [0., 0., 0.]
     translation_init = list(
@@ -999,352 +1008,378 @@ def align_prone_to_supine(
 
     #   First iteration: optimise transformation matrix by performing kd-tree of point clouds between
     #   the landmarks in prone and supine
-    print("\nPERFORMING OPTIMISATION\n============")
+    print("\nInitial point to point alignment\n============")
     prone_points = [prone_ribcage_mesh_coords, sternum_prone]
     supine_points = [supine_ribcage_pc, sternum_supine]
+    # T_optimal is transformation matrix:  the upper-left 3×3 submatrix represents rotation and scaling,
+    # and the last column represents translation
     T_optimal, res_optimal = breast_metadata.run_optimisation(breast_metadata.combined_objective_function, T_init,
                                                               prone_points, supine_points)
-    print(f"\nProne-to-supine ribcage transformation:\n {T_optimal}")
-    print("6 DoFs:", res_optimal.x)
+    print("success:", res_optimal.success)
+    print("message:", res_optimal.message)
+
+    # %% APPLY TRANSFORMATION AND EVALUATE FIT
+    print("\nEvaluate initial alignment\n============")
+    prone_ribcage_mesh_transformed = apply_transform(prone_ribcage_mesh_coords, T_optimal)
+    prone_sternum_transformed = apply_transform(sternum_prone, T_optimal)
+
+    # evaluate sternum fit
+    error, mapped_idx = breast_metadata.closest_distances(sternum_supine, prone_sternum_transformed)
+    sternum_error = np.linalg.norm(error, axis=1)
+    print(f"Sternum initial alignment error: {sternum_error} mm")
+
+    # evaluate ribcage fit
+    error, mapped_idx = breast_metadata.closest_distances(supine_ribcage_pc, prone_ribcage_mesh_transformed)
+    rib_error_mag = np.linalg.norm(error, axis=1)
+    print(f"Mean ribcage initial alignment error: {np.mean(rib_error_mag)} mm")
+    # # show statistics and distribution of projection errors
+    # aps.summary_stats(rib_error_mag)
+    # aps.plot_histogram(rib_error_mag, 5)
+
+    if plot_for_debug:
+        plot_all(point_cloud=supine_ribcage_pc, mesh_points=prone_ribcage_mesh_transformed)
+
+    # Visualise supine point-cloud coloured by nearest distance to the transformed prone mesh
+    # and draw arrows at the worst residual points.
+
+    # try:
+    #     plot_evaluate_alignment(
+    #         supine_pts=supine_ribcage_pc,
+    #         transformed_prone_mesh=prone_ribcage_mesh_transformed,
+    #         distances=rib_error_mag,
+    #         idxs=mapped_idx,
+    #         worst_n=60,
+    #         cmap="viridis",
+    #         point_size=3,
+    #         arrow_scale=20,
+    #         show_scalar_bar=True,
+    #         return_data=False
+    #     )
+    # except Exception as e:
+    #     print(f"Could not visualise ribcage errors: {e}")
+
 
     # ==========================================================
-    # %% APPLY TRANSFORMATION
+    # %% REFINE WITH POINT-TO-PLANE ICP
     # ==========================================================
-    T_inv = np.linalg.inv(T_optimal)
+    print("\nRefine with point to plane alignment\n============")
 
-    ribcage_prone_mesh_transformed = apply_transform(prone_ribcage_mesh_coords, T_optimal)
-    sternum_prone_transformed = apply_transform(sternum_prone, T_optimal)
-    sternum_supine_transformed = apply_transform(sternum_supine, T_inv)
-    nipple_prone_transformed = apply_transform(nipple_prone, T_optimal)
-    nipple_supine_transformed = apply_transform(nipple_supine, T_inv)
+    target_pts = np.asarray(prone_ribcage_mesh_transformed, dtype=np.float64)
+    source_pts = np.asarray(supine_ribcage_pc, dtype=np.float64)
+    # run Open3D point-to-plane ICP to refine prone -> supine alignment
+    T_icp, supine_ribcage_refined, icp_result = run_point_to_plane_icp(
+        source_pts=source_pts,
+        target_pts=target_pts,
+        max_correspondence_distance=10.0,
+        max_iterations=200,
+        delta=1.0
+    )
 
-    landmark_prone_r1_transformed = apply_transform(landmark_prone_r1, T_optimal)
-    landmark_prone_r2_transformed = apply_transform(landmark_prone_r2, T_optimal)
-    landmark_supine_r1_transformed = apply_transform(landmark_supine_r1, T_inv)
-    landmark_supine_r2_transformed = apply_transform(landmark_supine_r2, T_inv)
+    if plot_for_debug:
+        plot_all(point_cloud=supine_ribcage_refined, mesh_points=prone_ribcage_mesh_transformed)
+
+    # update the prone point cloud for subsequent plotting and evaluation
+    supine_ribcage_refined_inlier = icp_result['inlier_source_pts']
+
+    if plot_for_debug:
+        plot_all(point_cloud=supine_ribcage_refined_inlier, mesh_points=prone_ribcage_mesh_transformed)
+
+    print("\nEvaluate point to plane alignment\n============")
+    if icp_result is not None:
+        try:
+            print(f"ICP refinement: fitness={icp_result['fitness']:.4f}, inlier_rmse={icp_result['inlier_rmse']:.4f}")
+        except Exception:
+            print("ICP refinement completed.")
+
+    # evaluate ribcage fit
+    error, mapped_idx = breast_metadata.closest_distances(supine_ribcage_refined,prone_ribcage_mesh_transformed)
+    rib_error_mag = np.linalg.norm(error, axis=1)
+    print(f"Mean ribcage alignment error (absolute): {np.mean(rib_error_mag)} mm")
+
+    # Visualise supine point-cloud coloured by nearest distance to the transformed prone mesh
+    # and draw arrows at the worst residual points.
+    # try:
+    #     plot_evaluate_alignment(
+    #         supine_pts=supine_ribcage_refined,
+    #         transformed_prone_mesh=prone_ribcage_mesh_transformed,
+    #         distances=rib_error_mag,
+    #         idxs=mapped_idx,
+    #         worst_n=60,
+    #         cmap="viridis",
+    #         point_size=3,
+    #         arrow_scale=20,
+    #         show_scalar_bar=True,
+    #         return_data=False
+    #     )
+    # except Exception as e:
+    #     print(f"Could not visualise ribcage errors: {e}")
+
+    # show statistics and distribution of projection errors
+    print(f"\nSummary of ribcage alignment error (absolute) after ICP")
+    aps.summary_stats(rib_error_mag)
+    # aps.plot_histogram(rib_error_mag, 5)
+
+
+    T_icp_inv = np.linalg.inv(T_icp)
+    T_total = T_icp_inv @ T_optimal
+    prone_ribcage_aligned_final = apply_transform(prone_ribcage_mesh_coords, T_total)
+    prone_sternum_aligned_final = apply_transform(sternum_prone, T_total)
+
+    error, mapped_idx = breast_metadata.closest_distances(sternum_supine, prone_sternum_aligned_final)
+    sternum_error = np.linalg.norm(error, axis=1)
+    print(f"Sternum alignment error: {sternum_error} mm")
+
+    if plot_for_debug:
+        error_check, mapped_idx = breast_metadata.closest_distances(supine_ribcage_pc, prone_ribcage_aligned_final)
+        rib_error_mag_check = np.linalg.norm(error_check, axis=1)
+        print(f"Mean ribcage alignment error for checking: {np.mean(rib_error_mag_check)} mm")
 
     # ==========================================================
-    # %% EVALUATE DISPLACEMENT
+    # %% Landmark displacement after alignment
     # ==========================================================
 
-    # Evaluate absolute displacement of landmarks and nipples
+    # Aligned prone landmarks
+    landmark_prone_r1_transformed = apply_transform(landmark_prone_r1, T_total)
+    landmark_prone_r2_transformed = apply_transform(landmark_prone_r2, T_total)
+    landmark_prone_ave_transformed = apply_transform(landmark_prone_ave, T_total)
+
+    # Aligned prone nipple positions
+    nipple_prone_transformed = apply_transform(nipple_prone, T_total)
+
+    # Evaluate absolute displacement of landmarks from prone to supine
     landmark_r1_displacement_vectors = landmark_supine_r1 - landmark_prone_r1_transformed
     landmark_r1_displacement_magnitudes = np.linalg.norm(landmark_r1_displacement_vectors, axis=1)
     landmark_r2_displacement_vectors = landmark_supine_r2 - landmark_prone_r2_transformed
     landmark_r2_displacement_magnitudes = np.linalg.norm(landmark_r2_displacement_vectors, axis=1)
+    landmark_ave_displacement_vectors = landmark_supine_ave - landmark_prone_ave_transformed
+    landmark_ave_displacement_magnitudes = np.linalg.norm(landmark_ave_displacement_vectors, axis=1)
 
+    # Evaluate absolute displacement of nipples from prone to supine
     nipple_displacement_vectors = nipple_supine - nipple_prone_transformed
     nipple_displacement_magnitudes = np.linalg.norm(nipple_displacement_vectors, axis=1)
     left_nipple_displacement_vectors = nipple_displacement_vectors[0]
     right_nipple_displacement_vectors = nipple_displacement_vectors[1]
 
-    # --- Relative Displacements ---
-    # Create a boolean mask where True means the landmark is closer to the left nipple
+    # Evaluate landmark displacement relative to nipple displacement
     dist_to_left = np.linalg.norm(landmark_supine_r1 - nipple_supine[0], axis=1)
     dist_to_right = np.linalg.norm(landmark_supine_r1 - nipple_supine[1], axis=1)
+    # Create a boolean mask where True means the landmark is closer to the left nipple
     is_closer_to_left = dist_to_left < dist_to_right
-
-    relevant_nipple_vectors = np.where(
+    nipple_disp_vectors_closest = np.where(
         is_closer_to_left[:, np.newaxis],  # Condition
         left_nipple_displacement_vectors,  # Value if True
         right_nipple_displacement_vectors  # Value if False
     )
 
     # Registrar 1
-    landmark_r1_rel_nipple_vectors = relevant_nipple_vectors - landmark_r1_displacement_vectors
+    landmark_r1_rel_nipple_vectors = nipple_disp_vectors_closest - landmark_r1_displacement_vectors
     landmark_r1_rel_nipple_mag = np.linalg.norm(landmark_r1_rel_nipple_vectors, axis=1)
 
     # Registrar 2
-    landmark_r2_rel_nipple_vectors = relevant_nipple_vectors - landmark_r2_displacement_vectors
+    landmark_r2_rel_nipple_vectors = nipple_disp_vectors_closest - landmark_r2_displacement_vectors
     landmark_r2_rel_nipple_mag = np.linalg.norm(landmark_r2_rel_nipple_vectors, axis=1)
 
-    # %% Landmark displacement relative to nipple displacement
+    # Average
+    landmark_ave_rel_nipple_vectors = nipple_disp_vectors_closest - landmark_ave_displacement_vectors
+    landmark_ave_rel_nipple_mag = np.linalg.norm(landmark_ave_rel_nipple_vectors, axis=1)
+
+    # %% Separate Landmark Data by Closest Breast For Plots
     left_nipple_prone = nipple_prone_transformed[0]
     right_nipple_prone = nipple_prone_transformed[1]
 
-    prone_pos_left = landmark_prone_r1_transformed[is_closer_to_left]
-    land_disp_left = landmark_r1_displacement_vectors[is_closer_to_left]
-    # X_left = left_nipple_prone - prone_pos_left
-    X_left = prone_pos_left - left_nipple_prone
-    V_left = left_nipple_displacement_vectors - land_disp_left
+    # R1 landmarks
+    landmark_prone_r1_transformed_left = landmark_prone_r1_transformed[is_closer_to_left]
+    landmark_r1_disp_vectors_left = landmark_r1_displacement_vectors[is_closer_to_left]
+    landmark_prone_r1_transformed_right = landmark_prone_r1_transformed[~is_closer_to_left]
+    landmark_r1_disp_vectors_right = landmark_r1_displacement_vectors[~is_closer_to_left]
 
-    prone_pos_right = landmark_prone_r1_transformed[~is_closer_to_left]
-    land_disp_right = landmark_r1_displacement_vectors[~is_closer_to_left]
-    # X_right = right_nipple_prone - prone_pos_right
-    X_right = prone_pos_right - right_nipple_prone
-    V_right = right_nipple_displacement_vectors - land_disp_right
+    # separate into left and right based on proximity to nipples
+    X_left_r1 = landmark_prone_r1_transformed_left - left_nipple_prone
+    V_left_r1 = left_nipple_displacement_vectors - landmark_r1_disp_vectors_left
+    X_right_r1 = landmark_prone_r1_transformed_right - right_nipple_prone
+    V_right_r1 = right_nipple_displacement_vectors - landmark_r1_disp_vectors_right
+
+
+    # R2
+    landmark_prone_r2_transformed_left = landmark_prone_r2_transformed[is_closer_to_left]
+    landmark_r2_disp_vectors_left = landmark_r2_displacement_vectors[is_closer_to_left]
+    landmark_prone_r2_transformed_right = landmark_prone_r2_transformed[~is_closer_to_left]
+    landmark_r2_disp_vectors_right = landmark_r2_displacement_vectors[~is_closer_to_left]
+
+    X_left_r2 = landmark_prone_r2_transformed_left - left_nipple_prone
+    V_left_r2 = left_nipple_displacement_vectors - landmark_r2_disp_vectors_left
+    X_right_r2 = landmark_prone_r2_transformed_right - right_nipple_prone
+    V_right_r2 = right_nipple_displacement_vectors - landmark_r2_disp_vectors_right
+
+    #Average
+    landmark_prone_ave_transformed_left = landmark_prone_ave_transformed[is_closer_to_left]
+    landmark_ave_disp_vectors_left = landmark_ave_displacement_vectors[is_closer_to_left]
+    landmark_prone_ave_transformed_right = landmark_prone_ave_transformed[~is_closer_to_left]
+    landmark_ave_disp_vectors_right = landmark_ave_displacement_vectors[~is_closer_to_left]
+    X_left_ave = landmark_prone_ave_transformed_left - left_nipple_prone
+    V_left_ave = left_nipple_displacement_vectors - landmark_ave_disp_vectors_left
+    X_right_ave = landmark_prone_ave_transformed_right - right_nipple_prone
+    V_right_ave = right_nipple_displacement_vectors - landmark_ave_disp_vectors_right
+
 
     # ==========================================================
     # %% PLOT
     # ==========================================================
-    # X=right-left and Y=inf-sup
-    AXIS_X = 0
-    AXIS_Y = 2
+    # title = "Relative to the sternal superior (Jugular notch) "
+    # plot_vector_three_views(landmark_prone_r1_transformed_left, landmark_r1_disp_vectors_left,
+    #                         landmark_prone_r1_transformed_right, landmark_r1_disp_vectors_right, title)
 
-    # Define plot limits
-    lims = (-100, 100)
+    # title = "Relative to the nipples"
+    # plot_vector_three_views(X_left_r1, V_left_r1, X_right_r1, V_right_r1, title)
 
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 8.5))
-    fig.suptitle("Direction of landmark motion from prone to supine (R1 only)\n(with respect to the nipple)",
-                 fontsize=16)
 
-    # --- Plot 1: Right Breast ---
-    ax1.set_title("Coronal plane\nRight breast", loc='left', fontsize=12)
-    ax1.quiver(
-        X_right[:, AXIS_X], X_right[:, AXIS_Y],  # Arrow base (relative prone pos)
-        V_right[:, AXIS_X], V_right[:, AXIS_Y],  # Arrow vector (relative displacement)
-        angles='xy', scale_units='xy', scale=1, color='black'
-    )
-
-    # --- Plot 2: Left Breast ---
-    ax2.set_title("Coronal plane\nLeft breast", loc='left', fontsize=12)
-    ax2.quiver(
-        X_left[:, AXIS_X], X_left[:, AXIS_Y],  # Arrow base (relative prone pos)
-        V_left[:, AXIS_X], V_left[:, AXIS_Y],  # Arrow vector (relative displacement)
-        angles='xy', scale_units='xy', scale=1, color='black'
-    )
-
-    # --- Format both plots ---
-    for ax in [ax1, ax2]:
-        ax.set_xlabel("right-left (mm)")
-        ax.set_ylabel("inf-sup (mm)")
-
-        # Set limits and aspect ratio
-        ax.set_xlim(lims)
-        ax.set_ylim(lims)
-        ax.set_aspect('equal', adjustable='box')
-
-        # Add red nipple dot and quadrant lines
-        ax.plot(0, 0, 'ro', markersize=8, zorder=5)  # Nipple
-        ax.axhline(0, color='red', lw=1, zorder=0)
-        ax.axvline(0, color='red', lw=1, zorder=0)
-
-        # Add outer circle
-        circle = Circle((0, 0), lims[1], fill=False, color='black', lw=1)
-        ax.add_artist(circle)
-
-    # --- Add Quadrant Labels ---
-    # Note: These are mirrored for left vs. right
-    text_offset = lims[1] * 0.85
-    # Right Breast Quadrants
-    ax1.text(text_offset, text_offset, 'UI', ha='center', va='center', fontsize=14)
-    ax1.text(-text_offset, text_offset, 'UO', ha='center', va='center', fontsize=14)
-    ax1.text(text_offset, -text_offset, 'LI', ha='center', va='center', fontsize=14)
-    ax1.text(-text_offset, -text_offset, 'LO', ha='center', va='center', fontsize=14)
-
-    # Left Breast Quadrants
-    ax2.text(text_offset, text_offset, 'UO', ha='center', va='center', fontsize=14)
-    ax2.text(-text_offset, text_offset, 'UI', ha='center', va='center', fontsize=14)
-    ax2.text(text_offset, -text_offset, 'LO', ha='center', va='center', fontsize=14)
-    ax2.text(-text_offset, -text_offset, 'LI', ha='center', va='center', fontsize=14)
-
-    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-    plt.show()
-
-    # ==========================================================
-    # %% PRINT RESULTS & EVALUATE FIT
-    # ==========================================================
-    print("--- Landmark Displacement ---")
-    print("--- Registrar 1 ---")
-    for i in range(len(landmark_supine_r1)):
-        print(f"Landmark {i + 1}:")
-        print(f"  Displacement Vector: {landmark_r1_displacement_vectors[i]}")
-        print(f"  Displacement Magnitude: {landmark_r1_displacement_magnitudes[i]:.2f} mm")
-
-    print("--- Registrar 2 ---")
-    for i in range(len(landmark_supine_r2)):
-        print(f"Landmark {i + 1}:")
-        print(f"  Displacement Vector: {landmark_r2_displacement_vectors[i]}")
-        print(f"  Displacement Magnitude: {landmark_r2_displacement_magnitudes[i]:.2f} mm")
-
-    # evaluate sternum fit
-    error, mapped_idx = breast_metadata.closest_distances(sternum_supine, sternum_prone_transformed)
-    sternum_error = np.linalg.norm(error, axis=1)
-    print(f"Sternum alignment error: {sternum_error} mm")
-
-    # evaluate ribcage fit
-    error, mapped_idx = breast_metadata.closest_distances(supine_ribcage_pc, ribcage_prone_mesh_transformed)
-    rib_error_mag = np.linalg.norm(error, axis=1)
-    print(f"Ribcage alignment error: {rib_error_mag} mm")
-
-    # Visualise supine point-cloud coloured by nearest distance to the transformed prone mesh
-    # and draw arrows at the worst residual points.
-    try:
-        plot_evaluate_alignment(
-            supine_pts=supine_ribcage_pc,
-            transformed_prone_mesh=ribcage_prone_mesh_transformed,
-            distances=rib_error_mag,
-            idxs=mapped_idx,
-            worst_n=60,
-            cmap="viridis",
-            point_size=3,
-            arrow_scale=20,
-            show_scalar_bar=True,
-            return_data=False
-        )
-    except Exception as e:
-        print(f"Could not visualise ribcage errors: {e}")
-
-    # show statistics and distribution of projection errors
-    aps.summary_stats(rib_error_mag)
-    aps.plot_histogram(rib_error_mag, 5)
-
-    # ==========================================================
-    # %% RESAMPLE & PLOT
-    # ==========================================================
-    #   convert Pyvista image grid to SITK image
-    prone_image_sitk = breast_metadata.PyvistaImageGridToSITKImage(prone_image_grid)
-    prone_image_sitk = sitk.Cast(prone_image_sitk, sitk.sitkUInt8)
-    supine_image_sitk = breast_metadata.PyvistaImageGridToSITKImage(supine_image_grid)
-    supine_image_sitk = sitk.Cast(supine_image_sitk, sitk.sitkUInt8)
-
-    #   initialise affine transformation matrix
-    dimensions = 3
-    affine = sitk.AffineTransform(dimensions)
-    #   set transformation matrix from prone to supine
-    T_prone_to_supine = np.linalg.inv(T_optimal)
-    affine.SetTranslation(T_prone_to_supine[:3, 3])
-    affine.SetMatrix(T_prone_to_supine[:3, :3].ravel())
-
-    #   transform prone image to supine coordinate system
-    #   sitk.Resample(input_image, reference_image, transform) takes a transformation matrix that maps points
-    #   from the reference_image (output space) to it's corresponding location on the input_image (input space)
-    prone_image_transformed = sitk.Resample(prone_image_sitk, supine_image_sitk, affine, sitk.sitkLinear, 1.0)
-    prone_image_transformed = sitk.Cast(prone_image_transformed, sitk.sitkUInt8)
-
-    #   get pixel coordinates of landmarks
-    prone_scan_transformed = breast_metadata.SITKToScan(prone_image_transformed, orientation_flag, load_dicom=False,
-                                                        swap_axes=True)
-    prone_image_transformed_grid = breast_metadata.SCANToPyvistaImageGrid(prone_scan_transformed, orientation_flag)
-
-    sternum_prone_transformed_px = prone_scan_transformed.getPixelCoordinates(sternum_prone_transformed)
-    sternum_supine_px = supine_scan.getPixelCoordinates(sternum_supine)
-    nipple_prone_transformed_px = prone_scan_transformed.getPixelCoordinates(nipple_prone_transformed)
-    nipple_supine_px = supine_scan.getPixelCoordinates(nipple_supine_transformed)
-    landmark_prone_r1_transformed_px = prone_scan_transformed.getPixelCoordinates(landmark_prone_r1_transformed)
-    landmark_prone_r2_transformed_px = prone_scan_transformed.getPixelCoordinates(landmark_prone_r2_transformed)
-    landmark_supine_r1_px = supine_scan.getPixelCoordinates(landmark_supine_r1)
-    landmark_supine_r2_px = supine_scan.getPixelCoordinates(landmark_supine_r2)
-
-    # %%   plot
-    # plot prone and supine ribcage point clouds before and after alignment
-    plotter = pv.Plotter()
-    plotter.add_text("Landmark Displacement After Alignment", font_size=24)
-
-    # Plot the target supine landmarks (e.g., in green)
-    plotter.add_points(landmark_supine_r1, render_points_as_spheres=True, color='green', point_size=10,
-                       label='Supine Landmarks'
-                       )
-    # Plot the aligned prone landmarks (e.g., in red)
-    plotter.add_points(landmark_prone_r1_transformed, render_points_as_spheres=True, color='red', point_size=10,
-                       label='Aligned Prone Landmarks'
-                       )
-    # Add arrows to show the displacement vectors
-    for start_point, vector in zip(landmark_prone_r1_transformed, landmark_r1_displacement_vectors):
-        plotter.add_arrows(start_point, vector, mag=1.0, color='yellow')
-
-    opacity = np.linspace(0, 0.1, 100)
-
-    plotter.add_volume(prone_image_transformed_grid, opacity=opacity, cmap='grey', show_scalar_bar=False)
-    plotter.add_volume(supine_image_grid, opacity=opacity, cmap='coolwarm', show_scalar_bar=False)
-
-    plotter.add_points(sternum_prone_transformed, render_points_as_spheres=True, color='black', point_size=10,
-                       label='Aligned Prone Sternum'
-                       )
-    plotter.add_points(sternum_supine, render_points_as_spheres=True, color='white', point_size=10,
-                       label='Supine Sternum'
-                       )
-    plotter.add_points(nipple_prone_transformed, render_points_as_spheres=True, color='pink', point_size=8,
-                       label='Aligned Prone Nipples'
-                       )
-    plotter.add_points(nipple_supine, render_points_as_spheres=True, color='pink', point_size=8,
-                       label='Supine Nipples'
-                       )
-    plotter.add_legend()
-    plotter.show()
+    # # ==========================================================
+    # # %% RESAMPLE & PLOT
+    # # ==========================================================
+    # #   convert Pyvista image grid to SITK image
+    # prone_image_sitk = breast_metadata.PyvistaImageGridToSITKImage(prone_image_grid)
+    # prone_image_sitk = sitk.Cast(prone_image_sitk, sitk.sitkUInt8)
+    # supine_image_sitk = breast_metadata.PyvistaImageGridToSITKImage(supine_image_grid)
+    # supine_image_sitk = sitk.Cast(supine_image_sitk, sitk.sitkUInt8)
+    #
+    # #   initialise affine transformation matrix
+    # dimensions = 3
+    # affine = sitk.AffineTransform(dimensions)
+    # #   set transformation matrix from prone to supine
+    # T_prone_to_supine = np.linalg.inv(T_total)
+    # affine.SetTranslation(T_prone_to_supine[:3, 3])
+    # affine.SetMatrix(T_prone_to_supine[:3, :3].ravel())
+    #
+    # #   transform prone image to supine coordinate system
+    # #   sitk.Resample(input_image, reference_image, transform) takes a transformation matrix that maps points
+    # #   from the reference_image (output space) to it's corresponding location on the input_image (input space)
+    # prone_image_transformed = sitk.Resample(prone_image_sitk, supine_image_sitk, affine, sitk.sitkLinear, 1.0)
+    # prone_image_transformed = sitk.Cast(prone_image_transformed, sitk.sitkUInt8)
+    #
+    # #   get pixel coordinates of landmarks
+    # prone_scan_transformed = breast_metadata.SITKToScan(prone_image_transformed, orientation_flag, load_dicom=False,
+    #                                                     swap_axes=True)
+    # prone_image_transformed_grid = breast_metadata.SCANToPyvistaImageGrid(prone_scan_transformed, orientation_flag)
+    #
+    # sternum_prone_transformed_px = prone_scan_transformed.getPixelCoordinates(prone_sternum_aligned_final)
+    # sternum_supine_px = supine_scan.getPixelCoordinates(sternum_supine)
+    # nipple_prone_transformed_px = prone_scan_transformed.getPixelCoordinates(nipple_prone_transformed)
+    # landmark_prone_r1_transformed_px = prone_scan_transformed.getPixelCoordinates(landmark_prone_r1_transformed)
+    # landmark_prone_r2_transformed_px = prone_scan_transformed.getPixelCoordinates(landmark_prone_r2_transformed)
+    # landmark_supine_r1_px = supine_scan.getPixelCoordinates(landmark_supine_r1)
+    # landmark_supine_r2_px = supine_scan.getPixelCoordinates(landmark_supine_r2)
+    #
+    # # %%   plot
+    # # plot prone and supine ribcage point clouds before and after alignment
+    # plotter = pv.Plotter()
+    # plotter.add_text("Landmark Displacement After Alignment", font_size=24)
+    #
+    # # Plot the target supine landmarks (e.g., in green)
+    # plotter.add_points(landmark_supine_r1, render_points_as_spheres=True, color='green', point_size=10,
+    #                    label='Supine Landmarks'
+    #                    )
+    # # Plot the aligned prone landmarks (e.g., in red)
+    # plotter.add_points(landmark_prone_r1_transformed, render_points_as_spheres=True, color='red', point_size=10,
+    #                    label='Aligned Prone Landmarks'
+    #                    )
+    # # Add arrows to show the displacement vectors
+    # for start_point, vector in zip(landmark_prone_r1_transformed, landmark_r1_displacement_vectors):
+    #     plotter.add_arrows(start_point, vector, mag=1.0, color='yellow')
+    #
+    # opacity = np.linspace(0, 0.1, 100)
+    #
+    # plotter.add_volume(prone_image_transformed_grid, opacity=opacity, cmap='grey', show_scalar_bar=False)
+    # plotter.add_volume(supine_image_grid, opacity=opacity, cmap='coolwarm', show_scalar_bar=False)
+    # plotter.add_points(supine_ribcage_pc, color="tan", label='Point cloud', point_size=2,
+    #     render_points_as_spheres=True
+    # )
+    # plotter.add_points(prone_sternum_aligned_final, render_points_as_spheres=True, color='black', point_size=10,
+    #                    label='Aligned Prone Sternum'
+    #                    )
+    # plotter.add_points(sternum_supine, render_points_as_spheres=True, color='blue', point_size=10,
+    #                    label='Supine Sternum'
+    #                    )
+    # plotter.add_points(nipple_prone_transformed, render_points_as_spheres=True, color='pink', point_size=8,
+    #                    label='Aligned Prone Nipples'
+    #                    )
+    # plotter.add_points(nipple_supine, render_points_as_spheres=True, color='pink', point_size=8,
+    #                    label='Supine Nipples'
+    #                    )
+    # plotter.add_legend()
+    # # plotter.show()
     # plotter.show(auto_close=False, interactive_update=True)
     # time.sleep(5)
     # plotter.close()
 
-    # %%   scalar colour map (red-blue) to show alignment of prone transformed and supine MRIs
-    breast_metadata.visualise_alignment_with_landmarks(
-        supine_image_sitk, prone_image_transformed, sternum_supine_px[0], sternum_prone_transformed_px[0],
-        orientation='axial')
-    breast_metadata.visualise_alignment_with_landmarks(
-        supine_image_sitk, prone_image_transformed, sternum_supine_px[1], sternum_prone_transformed_px[1],
-        orientation='axial')
+    # # %%   scalar colour map (red-blue) to show alignment of prone transformed and supine MRIs
+    # breast_metadata.visualise_alignment_with_landmarks(
+    #     supine_image_sitk, prone_image_transformed, sternum_supine_px[0], sternum_prone_transformed_px[0],
+    #     orientation='axial')
+    # breast_metadata.visualise_alignment_with_landmarks(
+    #     supine_image_sitk, prone_image_transformed, sternum_supine_px[1], sternum_prone_transformed_px[1],
+    #     orientation='axial')
 
-    # Loop through each landmark and create a visualization
-    for i in range(len(landmark_supine_r1_px)):
-        print(f"Visualizing alignment for landmark #{i + 1}")
-        breast_metadata.visualise_alignment_with_landmarks(
-            supine_image_sitk,
-            prone_image_transformed,
-            landmark_supine_r1_px[i],
-            landmark_prone_r1_transformed_px[i],
-            orientation='axial'
-        )
+    # # Loop through each landmark and create a visualization
+    # for i in range(len(landmark_supine_r1_px)):
+    #     print(f"Visualizing alignment for landmark #{i + 1}")
+    #     breast_metadata.visualise_alignment_with_landmarks(
+    #         supine_image_sitk,
+    #         prone_image_transformed,
+    #         landmark_supine_r1_px[i],
+    #         landmark_prone_r1_transformed_px[i],
+    #         orientation='axial'
+    #     )
+    #
+    # # Loop through each landmark and create a visualization
+    # for i in range(len(landmark_supine_r1_px)):
+    #     print(f"Visualizing alignment for landmark #{i + 1}")
+    #     breast_metadata.visualise_alignment_with_landmarks(
+    #         supine_image_sitk,
+    #         prone_image_transformed,
+    #         landmark_supine_r1_px[i],
+    #         landmark_prone_r1_transformed_px[i],
+    #         orientation='sagittal'
+    #     )
+    #
+    # # Loop through each landmark and create a visualization
+    # for i in range(len(landmark_supine_r1_px)):
+    #     print(f"Visualizing alignment for landmark #{i + 1}")
+    #     breast_metadata.visualise_alignment_with_landmarks(
+    #         supine_image_sitk,
+    #         prone_image_transformed,
+    #         landmark_supine_r1_px[i],
+    #         landmark_prone_r1_transformed_px[i],
+    #         orientation='coronal'
+    #     )
 
-    # Loop through each landmark and create a visualization
-    for i in range(len(landmark_supine_r1_px)):
-        print(f"Visualizing alignment for landmark #{i + 1}")
-        breast_metadata.visualise_alignment_with_landmarks(
-            supine_image_sitk,
-            prone_image_transformed,
-            landmark_supine_r1_px[i],
-            landmark_prone_r1_transformed_px[i],
-            orientation='sagittal'
-        )
 
-    # Loop through each landmark and create a visualization
-    for i in range(len(landmark_supine_r1_px)):
-        print(f"Visualizing alignment for landmark #{i + 1}")
-        breast_metadata.visualise_alignment_with_landmarks(
-            supine_image_sitk,
-            prone_image_transformed,
-            landmark_supine_r1_px[i],
-            landmark_prone_r1_transformed_px[i],
-            orientation='coronal'
-        )
-
-        # %%   visualise relative displacement vectors using glyphs
-        points = pv.PolyData(landmark_prone_r1_transformed)
-
-        # Attach the relative vectors as data to these points
-        points['relative_motion'] = landmark_r1_rel_nipple_vectors
-
-        # Generate arrows (glyphs) based on the vector data
-        # The arrows are oriented and scaled by  'relative_motion' vectors
-        arrows = points.glyph(
-            orient='relative_motion',
-            scale='relative_motion',
-            factor=1.0  # Adjust this factor to make arrows larger or smaller
-        )
-
-        plotter = pv.Plotter()
-        plotter.add_mesh(arrows, color='yellow', label='Relative Motion')
-        plotter.add_points(landmark_supine_r1, color='red', render_points_as_spheres=True, point_size=10,
-                           label='Supine Landmarks')
-        plotter.add_legend()
-        plotter.add_axes()
-        plotter.show()
-        # plotter.show(auto_close=False, interactive_update=True)
-        # time.sleep(5)
-        # plotter.close()
 
 
     # ==========================================================
-    # %% RETURN RESULTS (Refactored to a dictionary)
+    # %% RETURN RESULTS
     # ==========================================================
     results = {
         "vl_id": subject.subject_id,
-        "T_optimal": T_optimal,
-        "T_degrees_translation": res_optimal.x,
+        "T_total": T_total,
         "sternum_error": sternum_error,
         "ribcage_error_mean": np.mean(rib_error_mag),
         "ribcage_error_std": np.std(rib_error_mag),
+        "ribcage_inlier_RMSE": icp_result['inlier_rmse'],
+        "nipple_prone_transformed": nipple_prone_transformed,
+        "nipple_supine": nipple_supine,
         "nipple_displacement_vectors": nipple_displacement_vectors,
         "nipple_displacement_magnitudes": nipple_displacement_magnitudes,
+        "landmark_prone_ave_transformed": landmark_prone_ave_transformed,
+        "landmark_supine_ave": landmark_supine_ave,
+        "ld_ave_displacement_vectors": landmark_ave_displacement_vectors,
+        "ld_ave_displacement_magnitudes": landmark_ave_displacement_magnitudes,
+        "ld_ave_rel_nipple_vectors": landmark_ave_rel_nipple_vectors,
+        "ld_ave_rel_nipple_magnitudes": landmark_ave_rel_nipple_mag,
+        "ld_ave_rel_nipple_vectors_base_left":X_left_ave,
+        "ld_ave_rel_nipple_vectors_left":V_left_ave,
+        "ld_ave_rel_nipple_vectors_base_right":X_right_ave,
+        "ld_ave_rel_nipple_vectors_right":V_right_ave,
+
         "r1_displacement_vectors": landmark_r1_displacement_vectors,
         "r1_displacement_magnitudes": landmark_r1_displacement_magnitudes,
         "r2_displacement_vectors": landmark_r2_displacement_vectors,
@@ -1353,10 +1388,265 @@ def align_prone_to_supine(
         "r1_rel_nipple_magnitudes": landmark_r1_rel_nipple_mag,
         "r2_rel_nipple_vectors": landmark_r2_rel_nipple_vectors,
         "r2_rel_nipple_magnitudes": landmark_r2_rel_nipple_mag,
-        "prone_image_transformed": prone_image_transformed
+        "r1_rel_nipple_vectors_base_left":X_left_r1,
+        "r1_rel_nipple_vectors_left":V_left_r1,
+        "r1_rel_nipple_vectors_base_right":X_right_r1,
+        "r1_rel_nipple_vectors_right":V_right_r1,
+        "r2_rel_nipple_vectors_base_left":X_left_r2,
+        "r2_rel_nipple_vectors_left":V_left_r2,
+        "r2_rel_nipple_vectors_base_right":X_right_r2,
+        "r2_rel_nipple_vectors_right":V_right_r2,
+        # "prone_image_transformed": prone_image_transformed
     }
 
     return results
+
+
+def compute_icp_metrics(src_pts: np.ndarray, tgt_pts: np.ndarray, tgt_normals: np.ndarray, max_correspondence_distance: float = np.inf):
+    """
+    Compute both Euclidean RMSE and point-to-plane RMSE between src_pts and tgt_pts using nearest-neighbours.
+    Returns a dict with keys: euclidean_rmse, point_to_plane_rmse, inlier_fraction, n_inliers
+    """
+    src = np.asarray(src_pts, dtype=float)
+    tgt = np.asarray(tgt_pts, dtype=float)
+    if src.size == 0 or tgt.size == 0:
+        return {"euclidean_rmse": None, "point_to_plane_rmse": None, "inlier_fraction": 0.0, "n_inliers": 0}
+
+    tree = cKDTree(tgt)
+    dists, idxs = tree.query(src)
+    valid = dists <= max_correspondence_distance
+    n_inliers = int(np.count_nonzero(valid))
+    inlier_fraction = float(n_inliers) / float(len(src)) if len(src) > 0 else 0.0
+
+    euclidean_rmse = float(np.sqrt(np.mean(dists[valid] ** 2))) if n_inliers > 0 else None
+
+    # point-to-plane residuals
+    if tgt_normals is None or n_inliers == 0:
+        ptp_rmse = None
+    else:
+        N = np.asarray(tgt_normals)[idxs[valid]]
+        P = src[valid]
+        Q = tgt[idxs[valid]]
+        residuals = np.einsum('ij,ij->i', N, (P - Q))
+        ptp_rmse = float(np.sqrt(np.mean(residuals ** 2))) if residuals.size > 0 else None
+
+    return {
+        "euclidean_rmse": euclidean_rmse,
+        "point_to_plane_rmse": ptp_rmse,
+        "inlier_fraction": inlier_fraction,
+        "n_inliers": n_inliers
+    }
+
+
+def run_point_to_plane_icp(
+    source_pts: np.ndarray,
+    target_pts: np.ndarray,
+    target_normals: Optional[np.ndarray] = None,
+    max_correspondence_distance: float = 10.0,
+    max_iterations: int = 50,
+    method: str = 'open3d',
+    delta: float = 1.0,
+    reweight_strategy: str = 'huber',
+    huber_delta: float = 2.0,
+    verbose: bool = False
+) -> tuple:
+    """
+    Flexible point-to-plane ICP. Two modes:
+      - method='open3d' : use Open3D registration_icp (point-to-plane) and return its transform + metrics
+      - method='reweighted' : run an iterative reweighted least-squares point-to-plane ICP implemented in numpy
+
+    Returns (T_total, source_transformed, info) where info includes diagnostics and both RMSEs.
+    """
+    source_pts = np.asarray(source_pts, dtype=np.float64)
+    target_pts = np.asarray(target_pts, dtype=np.float64)
+    if source_pts.size == 0 or target_pts.size == 0:
+        return np.eye(4), source_pts.copy(), {"it": 0, "euclidean_rmse": None, "ptp_rmse": None}
+
+    # Helper: estimate normals on target if not provided using Open3D
+    if target_normals is None:
+        try:
+            tgt_pcd = o3d.geometry.PointCloud()
+            tgt_pcd.points = o3d.utility.Vector3dVector(target_pts)
+            # heuristic radius
+            radius = max(5.0, max_correspondence_distance * 1.5)
+            tgt_pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=radius, max_nn=50))
+            target_normals = np.asarray(tgt_pcd.normals)
+        except Exception:
+            target_normals = np.tile(np.array([[0.0, 0.0, 1.0]]), (target_pts.shape[0], 1))
+
+    if method == 'open3d':
+        # Build Open3D point clouds
+        src_pcd = o3d.geometry.PointCloud()
+        tgt_pcd = o3d.geometry.PointCloud()
+        src_pcd.points = o3d.utility.Vector3dVector(source_pts)
+        tgt_pcd.points = o3d.utility.Vector3dVector(target_pts)
+        # ensure target normals exist in Open3D pcd
+        try:
+            tgt_pcd.normals = o3d.utility.Vector3dVector(target_normals)
+        except Exception:
+            pass
+
+        init_T = np.eye(4)
+        icp_criteria = o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=max_iterations)
+
+        #The Huber Loss is a robust loss function that behaves like L2 (Least Squares) for small errors (inliers)
+        # and like L1 (Least Absolute Error) for large errors (outliers).
+        loss = o3d.pipelines.registration.HuberLoss(k=delta) # k is the delta parameter
+        # The Tukey Biweight Loss is the closest practical equivalent to an aggressive inverse weighting scheme for outlier rejection.
+        # loss = o3d.pipelines.registration.TukeyLoss(k=delta)
+        try:
+            result = o3d.pipelines.registration.registration_icp(
+                src_pcd,
+                tgt_pcd,
+                max_correspondence_distance,
+                init_T,
+                o3d.pipelines.registration.TransformationEstimationPointToPlane(loss),
+                icp_criteria
+            )
+        except Exception as e:
+            if verbose:
+                print(f"Open3D ICP failed: {e}")
+            return np.eye(4), source_pts.copy(), {"it": 0}
+
+        T_icp = np.asarray(result.transformation)
+        src_h = np.hstack((source_pts, np.ones((source_pts.shape[0], 1))))
+        source_aligned = (T_icp @ src_h.T)[:3, :].T
+
+        # Re-use the target point cloud created earlier (or recreate it for simplicity)
+        tgt_pcd = o3d.geometry.PointCloud()
+        tgt_pcd.points = o3d.utility.Vector3dVector(target_pts)
+
+        source_pcd_aligned = o3d.geometry.PointCloud()
+        source_pcd_aligned.points = o3d.utility.Vector3dVector(source_aligned)
+
+        # Find correspondences after final alignment
+        # The result includes the indices of correspondences and their distances
+        corr_result = o3d.pipelines.registration.evaluate_registration(
+            source_pcd_aligned,
+            tgt_pcd,
+            max_correspondence_distance,
+            T_icp  # The transformation is T_icp @ init_T, which is T_icp here
+        )
+
+        # The 'correspondence_set' is a NumPy array where each row is [source_index, target_index]
+        correspondence_indices = np.asarray(corr_result.correspondence_set)
+
+        # The indices of the *aligned source points* that are considered inliers
+        inlier_source_indices = correspondence_indices[:, 0]
+
+        # Filter the source_aligned array to get only the inlier points
+        inlier_source_pts = source_aligned[inlier_source_indices]
+
+        metrics = compute_icp_metrics(source_aligned, target_pts, target_normals, max_correspondence_distance)
+
+        info = {
+            "it": result.convergence_status if hasattr(result, 'convergence_status') else max_iterations,
+            "fitness": float(getattr(result, 'fitness', np.nan)),
+            "inlier_rmse": float(getattr(result, 'inlier_rmse', np.nan)),
+            "euclidean_rmse": metrics["euclidean_rmse"],
+            "point_to_plane_rmse": metrics["point_to_plane_rmse"],
+            "n_inliers": metrics["n_inliers"],
+            "inlier_fraction": metrics["inlier_fraction"],
+            "inlier_source_pts": inlier_source_pts
+        }
+        return T_icp, source_aligned, info
+
+    # else method == 'reweighted'
+    # iterative reweighted point-to-plane ICP implemented in numpy
+    tree = cKDTree(target_pts)
+    src = source_pts.copy()
+    T_total = np.eye(4)
+    prev_ptp_rmse = np.inf
+
+    for it in range(max_iterations):
+        dists, idxs = tree.query(src)
+        valid_mask = dists <= max_correspondence_distance
+        if not np.any(valid_mask):
+            if verbose:
+                print("No valid correspondences in reweighted ICP iteration")
+            break
+
+        P = src[valid_mask]
+        Q = target_pts[idxs[valid_mask]]
+        N = target_normals[idxs[valid_mask]]
+
+        # point-to-plane residuals r = n^T (p - q)
+        r = np.einsum('ij,ij->i', N, (P - Q))
+
+        # compute weights
+        if reweight_strategy == 'huber':
+            abs_r = np.abs(r)
+            w = np.where(abs_r <= huber_delta, 1.0, huber_delta / (abs_r + 1e-12))
+        elif reweight_strategy == 'inv':
+            w = 1.0 / (np.abs(r) + 1e-6)
+            # cap weights to avoid extreme values
+            w = np.minimum(w, 100.0)
+        else:
+            # uniform weights
+            w = np.ones_like(r)
+
+        # Build A and b for linearised point-to-plane: A_i = [ (p x n)^T , n^T ], b_i = n^T (q - p)
+        pxn = np.cross(P, N)
+        A = np.hstack((pxn, N))
+        b = np.einsum('ij,ij->i', N, (Q - P))
+
+        # Apply weights by scaling rows
+        W_sqrt = np.sqrt(w)[:, None]
+        Aw = W_sqrt * A
+        bw = W_sqrt[:, 0] * b
+
+        try:
+            x, *_ = np.linalg.lstsq(Aw, bw, rcond=None)
+        except Exception as e:
+            if verbose:
+                print(f"Lstsq failed in reweighted ICP: {e}")
+            break
+
+        w_rot = x[:3]
+        t_trans = x[3:]
+
+        # incremental transform
+        # Rodrigues
+        theta = np.linalg.norm(w_rot)
+        if theta < 1e-12:
+            R_delta = np.eye(3)
+        else:
+            k = w_rot / theta
+            K = np.array([[0, -k[2], k[1]], [k[2], 0, -k[0]], [-k[1], k[0], 0]])
+            R_delta = np.eye(3) + np.sin(theta) * K + (1 - np.cos(theta)) * (K @ K)
+
+        T_delta = np.eye(4)
+        T_delta[:3, :3] = R_delta
+        T_delta[:3, 3] = t_trans
+
+        # apply to src
+        src_h = np.hstack((src, np.ones((src.shape[0], 1))))
+        src = (T_delta @ src_h.T)[:3, :].T
+
+        # accumulate transform
+        T_total = T_delta @ T_total
+
+        # compute metrics
+        metrics = compute_icp_metrics(src, target_pts, target_normals, max_correspondence_distance)
+        ptp_rmse = metrics["point_to_plane_rmse"] if metrics["point_to_plane_rmse"] is not None else np.inf
+
+        if verbose:
+            print(f"Reweighted ICP iter {it+1}: ptp_rmse={ptp_rmse:.6f}, eucl_rmse={metrics['euclidean_rmse']}, n_inliers={metrics['n_inliers']}")
+
+        # convergence check (small change in ptp RMSE)
+        if np.abs(prev_ptp_rmse - ptp_rmse) < 1e-6:
+            break
+        prev_ptp_rmse = ptp_rmse
+
+    info = {
+        "it": it + 1,
+        "euclidean_rmse": metrics.get("euclidean_rmse"),
+        "point_to_plane_rmse": metrics.get("point_to_plane_rmse"),
+        "n_inliers": metrics.get("n_inliers"),
+        "inlier_fraction": metrics.get("inlier_fraction")
+    }
+
+    return T_total, src, info
 
 
 def save_results_to_excel(
@@ -1375,6 +1665,7 @@ def save_results_to_excel(
     matches the i-th entry in the alignment_results arrays (e.g.,
     'r1_displacement_magnitudes'[i]).
     """
+    print("\nSaving all results to Excel...\n============")
 
     # --- Internal helper to build rows for one registrar ---
     def _build_registrar_data(
@@ -1397,9 +1688,13 @@ def save_results_to_excel(
             if align_res:
                 nipple_disp_mag = align_res.get("nipple_displacement_magnitudes", [None, None])
                 nipple_disp_vec = align_res.get("nipple_displacement_vectors", [[None] * 3, [None] * 3])
+                nipple_prone_transformed = align_res.get("nipple_prone_transformed", [[None] * 3, [None] * 3])
+                nipple_supine = align_res.get("nipple_supine", [[None] * 3, [None] * 3])
             else:
                 nipple_disp_mag = [None, None]
                 nipple_disp_vec = [[None] * 3, [None] * 3]
+                nipple_prone_transformed = [[None] * 3, [None] * 3]
+                nipple_supine = [[None] * 3, [None] * 3]
 
             # --- Loop through each landmark pair for this subject ---
             for i, pair in enumerate(pairs):
@@ -1408,23 +1703,33 @@ def save_results_to_excel(
                 if registrar_id == 1:
                     lm_name = pair[0]
                     reg_key = "r1"
-                else:  # registrar_id == 2
+                elif registrar_id == 2:
                     lm_name = pair[1]
                     reg_key = "r2"
+                elif registrar_id == 3:
+                    lm_name = pair[0]
+                    reg_key = "ld_ave"
 
-                # Get landmark-specific alignment data
+                # Get landmark-specific alignment data (from alignment_results)
                 if align_res:
+                    lm_prone_ave_transformed = align_res.get("landmark_prone_ave_transformed", [[None] * 3] * len(pairs))[i]
+                    lm_supine_ave = align_res.get("landmark_supine_ave", [[None] * 3] * len(pairs))[i]
                     lm_disp_mag = align_res.get(f"{reg_key}_displacement_magnitudes", [None] * len(pairs))[i]
                     lm_disp_vec = align_res.get(f"{reg_key}_displacement_vectors", [[None] * 3] * len(pairs))[i]
                     lm_rel_mag = align_res.get(f"{reg_key}_rel_nipple_magnitudes", [None] * len(pairs))[i]
                     lm_rel_vec = align_res.get(f"{reg_key}_rel_nipple_vectors", [[None] * 3] * len(pairs))[i]
+                    ribcage_inlier_RMSE = align_res.get("ribcage_inlier_RMSE", None)
+
                 else:
-                    lm_disp_mag, lm_disp_vec, lm_rel_mag, lm_rel_vec = None, [None] * 3, None, [None] * 3
+                    lm_prone_ave_transformed, lm_supine_ave, lm_disp_mag, lm_disp_vec, lm_rel_mag, lm_rel_vec \
+                        = [None] * 3, [None] * 3, None, [None] * 3, None, [None] * 3
+                    ribcage_inlier_RMSE = None
+
 
                 # --- Helper to safely get nested dictionary data ---
                 def get_data(results_dict: Dict, position: str, data_key: str, default: any = None) -> any:
                     try:
-                        if data_key in ["skin_distances", "rib_distances", "skin_neighborhood_avg"]:
+                        if data_key in ["skin_distances", "rib_distances", "skin_neighborhood_avg", "rib_neighborhood_avg"]:
                             # This data is in distance_results
                             return results_dict[vl_id][position][registrar_name][data_key][lm_name]
                         else:
@@ -1441,7 +1746,7 @@ def save_results_to_excel(
                     'Age': subject.age,
                     'Height [m]': subject.height,
                     'Weight [kg]': subject.weight,
-                    'Landmark Name': lm_name,
+                    'Landmark name': lm_name,
                     'Landmark type': lm_name.split('_')[0],
 
                     'landmark side (prone)': get_data(clockface_results, "prone", "side"),
@@ -1458,10 +1763,44 @@ def save_results_to_excel(
                     'Time (supine)': get_data(clockface_results, "supine", "time"),
                     'Quadrant (supine)': get_data(clockface_results, "supine", "quadrant"),
 
-                    'Landmark displacement [mm]': lm_disp_mag,
-                    'Landmark displacement relative to nipple [mm]': lm_rel_mag,
+                    "ribcage error mean": align_res.get("ribcage_error_mean"),
+                    "ribcage error std": align_res.get("ribcage_error_std"),
+                    "ribcage inlier RMSE": ribcage_inlier_RMSE,
+
+                    "left nipple prone transformed x": nipple_prone_transformed[0][0],
+                    "left nipple prone transformed y": nipple_prone_transformed[0][1],
+                    "left nipple prone transformed z": nipple_prone_transformed[0][2],
+                    "right nipple prone transformed x": nipple_prone_transformed[1][0],
+                    "right nipple prone transformed y": nipple_prone_transformed[1][1],
+                    "right nipple prone transformed z": nipple_prone_transformed[1][2],
+
+                    "left nipple supine x": nipple_supine[0][0],
+                    "left nipple supine y": nipple_supine[0][1],
+                    "left nipple supine z": nipple_supine[0][2],
+                    "right nipple supine x": nipple_supine[1][0],
+                    "right nipple supine y": nipple_supine[1][1],
+                    "right nipple supine z": nipple_supine[1][2],
+
+                    "landmark ave prone transformed x": lm_prone_ave_transformed[0],
+                    "landmark ave prone transformed y": lm_prone_ave_transformed[1],
+                    "landmark ave prone transformed z": lm_prone_ave_transformed[2],
+                    "landmark ave supine x": lm_supine_ave[0],
+                    "landmark ave supine y": lm_supine_ave[1],
+                    "landmark ave supine z": lm_supine_ave[2],
+
                     'Left nipple displacement [mm]': nipple_disp_mag[0],
                     'Right nipple displacement [mm]': nipple_disp_mag[1],
+
+                    'Left nipple displacement vector vx': nipple_disp_vec[0][0],
+                    'Left nipple displacement vector vy': nipple_disp_vec[0][1],
+                    'Left nipple displacement vector vz': nipple_disp_vec[0][2],
+
+                    'Right nipple displacement vector vx': nipple_disp_vec[1][0],
+                    'Right nipple displacement vector vy': nipple_disp_vec[1][1],
+                    'Right nipple displacement vector vz': nipple_disp_vec[1][2],
+
+                    'Landmark displacement [mm]': lm_disp_mag,
+                    'Landmark displacement relative to nipple [mm]': lm_rel_mag,
 
                     'Landmark displacement vector vx': lm_disp_vec[0],
                     'Landmark displacement vector vy': lm_disp_vec[1],
@@ -1471,18 +1810,19 @@ def save_results_to_excel(
                     'Landmark relative to nipple vector vy': lm_rel_vec[1],
                     'Landmark relative to nipple vector vz': lm_rel_vec[2],
 
-                    'Left nipple displacement vector vx': nipple_disp_vec[0][0],
-                    'Left nipple displacement vector vy': nipple_disp_vec[0][1],
-                    'Left nipple displacement vector vz': nipple_disp_vec[0][2],
-
-                    'Right nipple displacement vector vx': nipple_disp_vec[1][0],
-                    'Right nipple displacement vector vy': nipple_disp_vec[1][1],
-                    'Right nipple displacement vector vz': nipple_disp_vec[1][2]
+                    'Mask skin neighborhood avg (prone)': get_data(distance_results, "prone", "skin_neighborhood_avg"),
+                    'Mask rib neighborhood avg (prone)': get_data(distance_results, "prone", "rib_neighborhood_avg"),
+                    'Mask skin neighborhood avg (supine)': get_data(distance_results, "supine",
+                                                                    "skin_neighborhood_avg"),
+                    'Mask rib neighborhood avg (supine)': get_data(distance_results, "supine", "rib_neighborhood_avg"),
                 }
                 all_rows.append(row_data)
+
         print(json.dumps(all_rows, indent=2))
 
         return all_rows
+
+
 
     # --- Main function logic ---
 
@@ -1505,10 +1845,141 @@ def save_results_to_excel(
     )
     df_r2 = pd.DataFrame(r2_data)
 
+    # Build data for average landmark positions ("average")
+    print(f"Building data for average landmark positions...")
+    r3_data = _build_registrar_data(
+        registrar_name="average",
+        registrar_id=3
+    )
+    df_r3 = pd.DataFrame(r3_data)
+
     # Combine and save
     print("Combining dataframes...")
-    df_combined = pd.concat([df_r1, df_r2], ignore_index=True)
+    df_new = pd.concat([df_r1, df_r2], ignore_index=True)
+    new_vl_ids = df_new['VL_ID'].unique()
+    new_vl_ids_ave = df_r3['VL_ID'].unique()
 
-    df_combined.to_excel(excel_path, index=False)
-    print(f"Data successfully saved to {excel_path}")
+    df_existing = pd.DataFrame()
+    df_existing_ave = pd.DataFrame()
 
+    if excel_path.exists():
+        try:
+            df_existing = pd.read_excel(excel_path, sheet_name='processed_data', engine='openpyxl')
+            if not df_existing.empty:
+                df_existing_filtered = df_existing[~df_existing['VL_ID'].isin(new_vl_ids)].copy()
+                df_existing = df_existing_filtered
+        except ValueError:
+            # Sheet is missing but file exists. df_existing remains empty.
+            print(f"Warning: Sheet 'processed_data' not found. It will be created.")
+        except Exception as e:
+            print(f"Error reading 'processed_data' sheet: {e}. Starting new sheet.")
+
+
+    if excel_path.exists():
+        try:
+            df_existing_ave = pd.read_excel(excel_path, sheet_name='processed_ave_data', engine='openpyxl')
+            if not df_existing_ave.empty:
+                df_existing_ave_filtered = df_existing_ave[~df_existing_ave['VL_ID'].isin(new_vl_ids_ave)].copy()
+                df_existing_ave = df_existing_ave_filtered
+        except ValueError:
+            # Sheet is missing but file exists. df_existing remains empty.
+            print(f"Warning: Sheet 'processed_ave_data' not found. It will be created.")
+        except Exception as e:
+            print(f"Error reading 'processed_ave_data' sheet: {e}. Starting new sheet.")
+
+    df_combined = pd.concat([df_existing, df_new], ignore_index=True)
+    df_combined = df_combined.sort_values(by=['Registrar', 'VL_ID'], kind='stable').reset_index(drop=True)
+
+    df_ave_combined = pd.concat([df_existing_ave, df_r3], ignore_index=True)
+    df_ave_combined = df_ave_combined.sort_values(by=['VL_ID'], kind='stable').reset_index(drop=True)
+
+    try:
+        # Use ExcelWriter as a context manager for safe file handling
+        with pd.ExcelWriter(excel_path, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
+            df_combined.to_excel(writer, sheet_name='processed_data', index=False)
+            df_ave_combined.to_excel(writer, sheet_name='processed_ave_data', index=False)
+        print(f"Data successfully saved to {excel_path}")
+    except Exception as e:
+        print(f"An error occurred while saving: {e}")
+
+
+def save_raw_data_to_excel(
+        excel_path: Path,
+        all_subjects: Dict[int, Subject],
+):
+    # --- Build raw_data sheet (one row per subject) ---
+    # Build flattened raw_rows: one row per subject, per position, per registrar, per landmark
+    raw_rows = []
+
+    for vl_id, subject in all_subjects.items():
+        age = getattr(subject, 'age', None)
+        height = getattr(subject, 'height', None)
+        weight = getattr(subject, 'weight', None)
+
+        # iterate positions and registrars
+        for position in ('prone', 'supine'):
+            scan = subject.scans.get(position) if hasattr(subject, 'scans') else None
+            if scan is None or not hasattr(scan, 'registrar_data'):
+                continue
+
+            for registrar_name, reg_data in scan.registrar_data.items():
+                # map registrar name to id (keep same convention as processed_data)
+                registrar_id = 1 if registrar_name.lower() == 'anthony' else 2 if registrar_name.lower() == 'holly' else None
+
+                landmarks_dict = {}
+                try:
+                    landmarks_dict = reg_data.soft_tissue_landmarks or {}
+                except Exception:
+                    landmarks_dict = {}
+
+                # if no landmarks, still emit a row to capture subject/registrar metadata? skip to minimize rows
+                if not landmarks_dict:
+                    continue
+
+                for lm_name, lm_coord in landmarks_dict.items():
+                    # coerce coordinate to list of floats
+                    try:
+                        coord = np.asarray(lm_coord, dtype=float).reshape(3).tolist()
+                        x, y, z = coord
+                    except Exception:
+                        x = y = z = None
+
+                    raw_rows.append({
+                        'Registrar': registrar_id,
+                        'Registrar_name': registrar_name,
+                        'VL_ID': vl_id,
+                        'Age': age,
+                        'Height [m]': height,
+                        'Weight [kg]': weight,
+                        'position': position,
+                        'Landmark name': lm_name,
+                        'Landmark type': lm_name.split('_')[0] if isinstance(lm_name,
+                                                                             str) and '_' in lm_name else lm_name,
+                        'x': x,
+                        'y': y,
+                        'z': z
+                    })
+
+    df_raw = pd.DataFrame(raw_rows)
+    new_vl_ids = df_raw['VL_ID'].unique()
+    df_existing = pd.DataFrame()
+
+    if excel_path.exists():
+        try:
+            df_existing = pd.read_excel(excel_path, sheet_name='raw_data', engine='openpyxl')
+            if not df_existing.empty:
+                df_existing_filtered = df_existing[~df_existing['VL_ID'].isin(new_vl_ids)].copy()
+                df_existing = df_existing_filtered
+        except ValueError as e:
+            print(f"Warning: Sheet '{'raw_data'}' not found. Creating new sheet.")
+
+    df_combined = pd.concat([df_existing, df_raw], ignore_index=True)
+    df_combined = df_combined.sort_values(by=['Registrar', 'VL_ID'], kind='stable').reset_index(drop=True)
+    try:
+        # Use ExcelWriter as a context manager for safe file handling
+        with pd.ExcelWriter(excel_path, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
+            # Save raw data sheet
+            df_combined.to_excel(writer, sheet_name='raw_data', index=False)
+        print(f"Raw data successfully saved to {excel_path}")
+    except Exception as e:
+        print(f"An error occurred while saving raw data: {e}")

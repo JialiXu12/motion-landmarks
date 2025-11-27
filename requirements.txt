@@ -1,3 +1,4 @@
+pingouin
 trimesh
 # This template is a low-dependency template.
 # By default there is no requirements added here.

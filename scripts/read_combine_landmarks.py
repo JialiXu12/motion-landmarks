@@ -2,7 +2,7 @@ import json
 import os
 
 
-def combine_landmark_files(file1_path, file2_path, file3_path):
+def combine_landmark_files(file1_path, file2_path, file3_path, id):
     try:
         # --- 1. Read from file 1 ---
         with open(file1_path, 'r') as f:
@@ -31,6 +31,22 @@ def combine_landmark_files(file1_path, file2_path, file3_path):
         data3 = {
             "bodies": {
                 "Jiali-test": {
+                    "UUID": "UBERON:0009999",
+                    "joints": {
+                        "origin": {
+                            "3d_position": {
+                                "x": None,
+                                "y": None,
+                                "z": None
+                            },
+                            "UUID": None,
+                            "voxel_position": {
+                                "x": None,
+                                "y": None,
+                                "z": None
+                            }
+                        }
+                    },
                     "landmarks": {
                         "nipple-l": nipple_l,
                         "nipple-r": nipple_r,
@@ -38,7 +54,11 @@ def combine_landmark_files(file1_path, file2_path, file3_path):
                         "sternal-superior": sternum_sup,
                     }
                 }
-            }
+            },
+            "mri_modality": "t2",
+            "mri_orientation": "prone",
+            "participant_id": id,
+            "skeletal_hierarchy_version": 1.5
         }
 
         print(f"--- Creating new data structure... ---")
@@ -59,16 +79,16 @@ def combine_landmark_files(file1_path, file2_path, file3_path):
         print("Please check that your JSON files have the correct nested structure.")
 
 if __name__ == '__main__':
-    vl_ids = [25, 29, 30, 31, 34,35,36,37,38,39,40,41,42,44,45,46,47,48,49,50,51,52, 54,56,57,58,59,60,61,63,64,
+    vl_ids = [31, 34,35,36,37,38,39,40,41,42,44,45,46,47,48,49,50,51,52, 54,56,57,58,59,60,61,63,64,
               65,66,67,68,69,70,71,72,74,75,76,77,78,79,84, 85, 89]
     base_path = r'U:\sandbox\jxu759\volunteer_seg\results\prone\landmarks\combined'
 
     for vl_id in vl_ids:
         file_name = f'VL{vl_id:05d}_skeleton_data_prone_t2.json'
-
+        id = f'VL{vl_id:05d}'
         file1_path = os.path.join(base_path,'bv_ssm',file_name)
         file2_path = os.path.join(base_path,'bv_xiphoid',file_name)
         file3_path = os.path.join(base_path, file_name)
 
-        combine_landmark_files(file1_path, file2_path, file3_path)
+        combine_landmark_files(file1_path, file2_path, file3_path, id)
 
