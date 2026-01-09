@@ -3,6 +3,20 @@ import numpy as np
 import scipy
 import mesh_tools
 import morphic
+import trimesh
+
+def morphic_to_trimesh(mesh):
+    """
+       Function used to transform morphic mesh to trimesh for plotting using pyvista.
+       Input:
+       mesh - morphic mesh which is required to be plotted
+       Output:
+       tri_mesh: converted trimesh
+    """
+    surface = mesh.get_surfaces(res=8)
+    tri_mesh = trimesh.Trimesh(surface[0],surface[1])
+    return tri_mesh
+
 
 def exfile_to_morphic(nodeFilename, elementFilename, coordinateField,
                       dimension=2, interpolation='linear'):

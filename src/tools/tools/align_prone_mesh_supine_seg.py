@@ -1,11 +1,13 @@
-from breast_metadata_mdv.examples.images.visualise_image_and_mesh import align_prone_supine as aps
 
 import os
 import sys
+import time
 import breast_metadata
 import tools
 import morphic
 import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.patches import Circle
 import pyvista as pv
 import SimpleITK as sitk
 from breast_metadata_mdv.examples.images.visualise_image_and_mesh import align_prone_supine as aps
@@ -83,16 +85,149 @@ def align_prone_mesh_supine_mask(vl_id, mri_t2_images_prone_path, mri_t2_images_
     ones = np.ones((len(landmark_prone_r1), 1))
     landmark_prone_r1_transformed = (T_optimal @ np.hstack((landmark_prone_r1, ones)).T)[:-1, :].T
     landmark_prone_r2_transformed = (T_optimal @ np.hstack((landmark_prone_r2, ones)).T)[:-1, :].T
-    landmark_supine_r1__transformed = (np.linalg.inv(T_optimal) @ np.hstack((landmark_supine_r1, ones)).T)[:-1, :].T
+    landmark_supine_r1_transformed = (np.linalg.inv(T_optimal) @ np.hstack((landmark_supine_r1, ones)).T)[:-1, :].T
     landmark_supine_r2_transformed = (np.linalg.inv(T_optimal) @ np.hstack((landmark_supine_r2, ones)).T)[:-1, :].T
 
-    #%%   evaluate displacement of landmarks
+    #%%   evaluate displacement of landmarks and nipples
     landmark_r1_displacement_vectors = landmark_supine_r1 - landmark_prone_r1_transformed
     landmark_r1_displacement_magnitudes = np.linalg.norm(landmark_r1_displacement_vectors, axis=1)
-    landmark_r2_displacement_vectors = landmark_prone_r2_transformed - landmark_supine_r2
+    landmark_r2_displacement_vectors = landmark_supine_r2 - landmark_prone_r2_transformed
     landmark_r2_displacement_magnitudes = np.linalg.norm(landmark_r2_displacement_vectors, axis=1)
 
-    # --- Print the results ---
+    nipple_displacement_vectors = nipple_supine - nipple_prone_transformed
+    print(f'nipple_displacement_vectors: {nipple_displacement_vectors}')
+    nipple_displacement_magnitudes = np.linalg.norm(nipple_displacement_vectors, axis=1)
+    print(f'nipple_displacement_magnitudes: {nipple_displacement_magnitudes}')
+
+    # Extract individual nipple displacements
+    left_nipple_displacement_vectors = nipple_displacement_vectors[0]
+    right_nipple_displacement_vectors = nipple_displacement_vectors[1]
+
+    # Calculate the distance from each landmark to each nipple
+    dist_to_left = np.linalg.norm(landmark_supine_r1 - nipple_supine[0], axis=1)
+    dist_to_right = np.linalg.norm(landmark_supine_r1 - nipple_supine[1], axis=1)
+
+    # Create a boolean mask where True means the landmark is closer to the left nipple
+    is_closer_to_left = dist_to_left < dist_to_right
+
+    left_landmark_r1_vectors = landmark_r1_displacement_vectors[is_closer_to_left]
+    right_landmark_r1_vectors = landmark_r1_displacement_vectors[~is_closer_to_left]
+
+    left_rel_vectors = left_nipple_displacement_vectors - left_landmark_r1_vectors
+    right_rel_vectors = right_nipple_displacement_vectors - right_landmark_r1_vectors
+
+    relevant_nipple_vectors = np.where(
+        is_closer_to_left[:, np.newaxis],  # Condition
+        left_nipple_displacement_vectors,  # Value if True
+        right_nipple_displacement_vectors  # Value if False
+    )
+
+    landmark_r1_rel_nipple_vectors = relevant_nipple_vectors - landmark_r1_displacement_vectors
+    landmark_r1_rel_nipple_mag = np.linalg.norm(landmark_r1_rel_nipple_vectors, axis=1)
+    print(f'landmark_r1_relative_nipple_displacement_vectors: {landmark_r1_rel_nipple_vectors}')
+    print(f'landmark_r1_relative_nipple_displacement_magnitudes: {landmark_r1_rel_nipple_mag}')
+
+    landmark_r2_rel_nipple_vectors = relevant_nipple_vectors - landmark_r2_displacement_vectors
+    landmark_r2_rel_nipple_mag = np.linalg.norm(landmark_r2_rel_nipple_vectors, axis=1)
+
+    # %% separate landmarks for left and right breast
+    left_nipple_prone = nipple_prone_transformed[0]
+    right_nipple_prone = nipple_prone_transformed[1]
+
+    # --- left breast ---
+    prone_pos_left = landmark_prone_r1_transformed[is_closer_to_left]
+    land_disp_left = landmark_r1_displacement_vectors[is_closer_to_left]
+
+    # Prone landmark pos relative to prone nipple
+    X_left = left_nipple_prone - prone_pos_left
+    # Vector direction: Landmark displacement relative to nipple displacement
+    V_left = left_nipple_displacement_vectors - land_disp_left
+
+    # --- right breast ---
+    prone_pos_right = landmark_prone_r1_transformed[~is_closer_to_left]
+    land_disp_right = landmark_r1_displacement_vectors[~is_closer_to_left]
+
+    #Prone landmark pos relative to prone nipple
+    X_right = right_nipple_prone - prone_pos_right
+    # Vector direction: Landmark displacement relative to nipple displacement
+    V_right = right_nipple_displacement_vectors - land_disp_right
+
+    # --- 6. PLOT THE DATA ---
+
+    # --- Define coordinate system axes ---
+    # Adjust these indices to match your data's coordinate system
+    # 0 = right-left (X-axis)
+    # 1 = anterior-posterior (Y-axis)
+    # 2 = inferior-superior (Z-axis)
+    #
+    # Based on the plot, we want X=right-left and Y=inf-sup
+    AXIS_X = 0
+    AXIS_Y = 2
+
+    # Define plot limits
+    lims = (-60, 60)
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 8.5))
+    fig.suptitle("Direction of landmark motion from prone to supine (R1 only)\n(with respect to the nipple)",
+                 fontsize=16)
+
+    # --- Plot 1: Right Breast ---
+    ax1.set_title("Coronal plane\nRight breast", loc='left', fontsize=12)
+    ax1.quiver(
+        X_right[:, AXIS_X], X_right[:, AXIS_Y],  # Arrow base (relative prone pos)
+        V_right[:, AXIS_X], V_right[:, AXIS_Y],  # Arrow vector (relative displacement)
+        angles='xy', scale_units='xy', scale=1, color='black'
+    )
+
+    # --- Plot 2: Left Breast ---
+    ax2.set_title("Coronal plane\nLeft breast", loc='left', fontsize=12)
+    ax2.quiver(
+        X_left[:, AXIS_X], X_left[:, AXIS_Y],  # Arrow base (relative prone pos)
+        V_left[:, AXIS_X], V_left[:, AXIS_Y],  # Arrow vector (relative displacement)
+        angles='xy', scale_units='xy', scale=1, color='black'
+    )
+
+    # --- Format both plots ---
+    for ax in [ax1, ax2]:
+        ax.set_xlabel("right-left (mm)")
+        ax.set_ylabel("inf-sup (mm)")
+
+        # Set limits and aspect ratio
+        ax.set_xlim(lims)
+        ax.set_ylim(lims)
+        ax.set_aspect('equal', adjustable='box')
+
+        # Add red nipple dot and quadrant lines
+        ax.plot(0, 0, 'ro', markersize=8, zorder=5)  # Nipple
+        ax.axhline(0, color='red', lw=1, zorder=0)
+        ax.axvline(0, color='red', lw=1, zorder=0)
+
+        # Add outer circle
+        circle = Circle((0, 0), lims[1], fill=False, color='black', lw=1)
+        ax.add_artist(circle)
+
+    # --- Add Quadrant Labels ---
+    # Note: These are mirrored for left vs. right
+    text_offset = lims[1] * 0.85
+    # Right Breast Quadrants
+    ax1.text(text_offset, text_offset, 'UI', ha='center', va='center', fontsize=14)
+    ax1.text(-text_offset, text_offset, 'UO', ha='center', va='center', fontsize=14)
+    ax1.text(text_offset, -text_offset, 'LI', ha='center', va='center', fontsize=14)
+    ax1.text(-text_offset, -text_offset, 'LO', ha='center', va='center', fontsize=14)
+
+    # Left Breast Quadrants
+    ax2.text(text_offset, text_offset, 'UO', ha='center', va='center', fontsize=14)
+    ax2.text(-text_offset, text_offset, 'UI', ha='center', va='center', fontsize=14)
+    ax2.text(text_offset, -text_offset, 'LO', ha='center', va='center', fontsize=14)
+    ax2.text(-text_offset, -text_offset, 'LI', ha='center', va='center', fontsize=14)
+
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+    plt.show()
+
+
+
+
+    # %% --- Print the results ---
     print("--- Landmark Displacement ---")
     print("--- Registrar 1 ---")
     for i in range(len(landmark_supine_r1)):
@@ -107,17 +242,18 @@ def align_prone_mesh_supine_mask(vl_id, mri_t2_images_prone_path, mri_t2_images_
         print(f"  Displacement Magnitude: {landmark_r2_displacement_magnitudes[i]:.2f} mm")
 
     #%%   evaluate sternum fit
-    error, mapped_idx = breast_metadata.closest_distances(sternum_supine, nipple_prone_transformed)
-    print(f"Sternum fit error: {np.linalg.norm(error, axis=1)} mm")
+    error, mapped_idx = breast_metadata.closest_distances(sternum_supine, sternum_prone_transformed)
+    sternum_error = np.linalg.norm(error, axis=1)
+    print(f"Sternum alignment error: {sternum_error} mm")
 
     #%%   evaluate ribcage fit
     error, mapped_idx = breast_metadata.closest_distances(supine_ribcage_pc, ribcage_prone_mesh_transformed)
-    error_mag = np.linalg.norm(error, axis=1)
-    print(f"Ribcage fit error: {error_mag} mm")
+    rib_error_mag = np.linalg.norm(error, axis=1)
+    print(f"Ribcage alignment error: {rib_error_mag} mm")
 
     #%%   show statistics and distribution of projection errors
-    aps.summary_stats(error_mag)
-    aps.plot_histogram(error_mag, 5)
+    aps.summary_stats(rib_error_mag)
+    aps.plot_histogram(rib_error_mag, 5)
 
 
     #%%   resample
@@ -132,7 +268,8 @@ def align_prone_mesh_supine_mask(vl_id, mri_t2_images_prone_path, mri_t2_images_
     affine = sitk.AffineTransform(dimensions)
 
     #   set transformation matrix from prone to supine
-    T_prone_to_supine = T_optimal
+    T_prone_to_supine = np.linalg.inv(T_optimal)
+
     affine.SetTranslation(T_prone_to_supine[:3, 3])
     affine.SetMatrix(T_prone_to_supine[:3, :3].ravel())
 
@@ -164,28 +301,43 @@ def align_prone_mesh_supine_mask(vl_id, mri_t2_images_prone_path, mri_t2_images_
 
     # Plot the target supine landmarks (e.g., in green)
     plotter.add_points(landmark_supine_r1, render_points_as_spheres=True, color='green', point_size=10,
-        label='Target Supine Landmarks'
+        label='Supine Landmarks'
     )
-
     # Plot the aligned prone landmarks (e.g., in red)
     plotter.add_points(landmark_prone_r1_transformed, render_points_as_spheres=True, color='red', point_size=10,
         label='Aligned Prone Landmarks'
     )
-
     # Add arrows to show the displacement vectors
     for start_point, vector in zip(landmark_prone_r1_transformed, landmark_r1_displacement_vectors):
         plotter.add_arrows(start_point, vector, mag=1.0, color='yellow')
 
-    plotter.add_volume(prone_image_transformed_grid, opacity='sigmoid_8', cmap='grey', show_scalar_bar=False)
-    plotter.add_volume(supine_image_grid, opacity='sigmoid_8', cmap='coolwarm', show_scalar_bar=False)
 
-    plotter.add_points(sternum_prone_transformed, render_points_as_spheres=True, color='red', point_size=10,
-        label='Aligned Prone Landmarks'
+    # # Calculate the absolute difference
+    # difference_image = sitk.Abs(prone_image_transformed - supine_image_sitk)
+    # difference_image = breast_metadata.SITKToScan(difference_image, orientation_flag, load_dicom=False, swap_axes=True)
+    # difference_image = breast_metadata.SCANToPyvistaImageGrid(difference_image, orientation_flag)
+    # plotter.add_volume(pv.wrap(difference_image), opacity='sigmoid_8', cmap='viridis', show_scalar_bar=False)
+    opacity = np.linspace(0, 0.1, 100)
+
+    plotter.add_volume(prone_image_transformed_grid, opacity=opacity, cmap='grey', show_scalar_bar=False)
+    plotter.add_volume(supine_image_grid, opacity=opacity, cmap='coolwarm', show_scalar_bar=False)
+
+    plotter.add_points(sternum_prone_transformed, render_points_as_spheres=True, color='black', point_size=10,
+        label='Aligned Prone Sternum'
     )
-
+    plotter.add_points(sternum_supine, render_points_as_spheres=True, color='white', point_size=10,
+        label='Supine Sternum'
+    )
+    plotter.add_points(nipple_prone_transformed, render_points_as_spheres=True, color='pink', point_size=8,
+        label='Aligned Prone Nipples'
+    )
+    plotter.add_points(nipple_supine, render_points_as_spheres=True, color='pink', point_size=8,
+        label='Supine Nipples'
+    )
     plotter.add_legend()
-    plotter.show()
-
+    plotter.show(auto_close=False, interactive_update=True)
+    # time.sleep(5)
+    plotter.close()
 
     #%%   scalar colour map (red-blue) to show alignment of prone transformed and supine MRIs
     breast_metadata.visualise_alignment_with_landmarks(
@@ -194,7 +346,7 @@ def align_prone_mesh_supine_mask(vl_id, mri_t2_images_prone_path, mri_t2_images_
         supine_image_sitk, prone_image_transformed, sternum_supine_px[1], sternum_prone_transformed_px[1], orientation='axial')
 
     # Loop through each landmark and create a visualization
-    for i in range(len(sternum_supine_px)):
+    for i in range(len(landmark_supine_r1_px)):
         print(f"Visualizing alignment for landmark #{i + 1}")
         breast_metadata.visualise_alignment_with_landmarks(
             supine_image_sitk,
@@ -204,6 +356,58 @@ def align_prone_mesh_supine_mask(vl_id, mri_t2_images_prone_path, mri_t2_images_
             orientation='axial'
         )
 
+    # Loop through each landmark and create a visualization
+    for i in range(len(landmark_supine_r1_px)):
+        print(f"Visualizing alignment for landmark #{i + 1}")
+        breast_metadata.visualise_alignment_with_landmarks(
+            supine_image_sitk,
+            prone_image_transformed,
+            landmark_supine_r1_px[i],
+            landmark_prone_r1_transformed_px[i],
+            orientation='sagittal'
+        )
+
+    # Loop through each landmark and create a visualization
+    for i in range(len(landmark_supine_r1_px)):
+        print(f"Visualizing alignment for landmark #{i + 1}")
+        breast_metadata.visualise_alignment_with_landmarks(
+            supine_image_sitk,
+            prone_image_transformed,
+            landmark_supine_r1_px[i],
+            landmark_prone_r1_transformed_px[i],
+            orientation='coronal'
+        )
+
+    #%%   visualise relative displacement vectors using glyphs
+    points = pv.PolyData(landmark_prone_r1_transformed)
+
+    # Attach the relative vectors as data to these points
+    points['relative_motion'] = landmark_r1_rel_nipple_vectors
+
+    # Generate arrows (glyphs) based on the vector data
+    # The arrows are oriented and scaled by  'relative_motion' vectors
+    arrows = points.glyph(
+        orient='relative_motion',
+        scale='relative_motion',
+        factor=1.0  # Adjust this factor to make arrows larger or smaller
+    )
+
+    plotter = pv.Plotter()
+    plotter.add_mesh(arrows, color='yellow', label='Relative Motion')
+    plotter.add_points(landmark_supine_r1, color='red', render_points_as_spheres=True, point_size=10,
+                       label='Supine Landmarks')
+    plotter.add_legend()
+    plotter.add_axes()
+    plotter.show(auto_close=False, interactive_update=True)
+    # time.sleep(5)
+    plotter.close()
+
+
+
     return landmark_r1_displacement_vectors, landmark_r1_displacement_magnitudes, \
            landmark_r2_displacement_vectors, landmark_r2_displacement_magnitudes, \
-           error, error_mag, T_optimal, res_optimal, prone_image_transformed
+           landmark_r1_rel_nipple_vectors, landmark_r2_rel_nipple_vectors, \
+              landmark_r1_rel_nipple_mag, landmark_r2_rel_nipple_mag, \
+           nipple_displacement_vectors, nipple_displacement_magnitudes, \
+                                    X_left, V_left, X_right, V_right, \
+           sternum_error, rib_error_mag, T_optimal, res_optimal, prone_image_transformed

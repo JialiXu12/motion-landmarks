@@ -1,0 +1,11 @@
+{
+    "z_voxels_bottom": 20,
+    "z_voxels_top": 40,
+    "x_spine_offset": 25.0,
+    "y_spine_offset": 60.0,
+    "x_lateral_margin": 90.0,
+    "y_posterior_margin": 60.0,
+    "z_inferior_margin": 25.0,
+    "sor_k_neighbors": 50,
+    "sor_std_multiplier": 1.0
+}

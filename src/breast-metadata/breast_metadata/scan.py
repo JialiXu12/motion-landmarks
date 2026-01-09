@@ -1,6 +1,5 @@
 import SimpleITK as sitk
 import pydicom as dicom
-import pyvista as pv
 import numpy as np
 import sys
 import os
@@ -61,12 +60,12 @@ class Scan(object):
         self.num_slices = 0
         self.origin = np.array([0., 0., 0.])
         self.spacing = np.array([1., 1., 1.])
-        self.orientation = 'RAI'  # [1,0,0,0,1,0] RAI orientation:
-        # The BBRG has standardised RAI orientation:
-        # The X vector is (1,0,0) meaning it is exactly
-        # directed with the image pixel matrix row direction
-        #  and the Y vector is (0,1,0) meaning it is exactly
-        # directed with the image pixel matrix column direction.
+        self.orientation = 'RAI' # [1,0,0,0,1,0] RAI orientation:
+                                 # The BBRG has standardised RAI orientation:
+                                # The X vector is (1,0,0) meaning it is exactly
+                                # directed with the image pixel matrix row direction
+                                #  and the Y vector is (0,1,0) meaning it is exactly
+                                # directed with the image pixel matrix column direction.
         self.filepaths = []
         self.values = np.zeros((1, 1, 1))
         self.age = None  # subject age, weight and height
@@ -109,6 +108,9 @@ class Scan(object):
         self.spacing[0] = float(values[0])
         self.spacing[1] = float(values[1])
 
+    def set_voxel_grid_spacing(self, values):
+        self.spacing = np.array([float(v) for v in values])
+
     def set_orientation(self, value):
         self.orientation = value
 
@@ -123,7 +125,6 @@ class Scan(object):
         self.values[:, :, index] = values
 
     def load_files(self, dicom_files):
-
         if isinstance(dicom_files, str):
             dicom_path = dicom_files
             dicom_files = os.listdir(dicom_path)
@@ -176,7 +177,7 @@ class Scan(object):
         dt = []
         for i, zi in enumerate(sorted_index[:-1]):
             i0 = sorted_index[i]
-            i1 = sorted_index[i + 1]
+            i1 = sorted_index[i+1]
             dt.append(slice_location[i1] - slice_location[i0])
         dt = np.array(dt)
 
@@ -240,9 +241,9 @@ class Scan(object):
 
         return True
 
-    def setRaiOrientation(self):  # RAI: x = Right to left;
-        # y = Anterior to posterior;
-        # z = Inferior to superior
+    def setRaiOrientation(self): # RAI: x = Right to left;
+                                 # y = Anterior to posterior;
+                                 # z = Inferior to superior
 
         if self.orientation == 'ALS':
             self.values = np.flip(self.values, 1)
@@ -251,9 +252,9 @@ class Scan(object):
             self.spacing = np.array([self.spacing[1], self.spacing[0], self.spacing[2]])
             self.orientation = 'RAI'
 
-    def setAlsOrientation(self):  # ALS: x = anterior to posterior;
-        # y = left to right;
-        # z = Superior to inferior
+    def setAlsOrientation(self): # ALS: x = anterior to posterior;
+                                 # y = left to right;
+                                 # z = Superior to inferior
 
         if self.orientation == 'RAI':
             self.values = np.flip(self.values, 0)
@@ -266,7 +267,11 @@ class Scan(object):
         spacing = self.spacing
         origin = self.origin
         pixelCoords = np.divide(points - origin, spacing)
-        # pixelCoords = [[round(y,2) for y in x] for x in pixelCoords]
+        try:
+            pixelCoords = [[round(y,2) for y in x] for x in pixelCoords]
+        except TypeError:
+            pixelCoords = [round(x,2) for x in pixelCoords]
+
         return pixelCoords
 
     def getWorldCoordinate(self, value):

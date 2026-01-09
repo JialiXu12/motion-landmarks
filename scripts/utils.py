@@ -928,9 +928,9 @@ def align_prone_to_supine(
     prone_scan = subject.scans["prone"].scan_object
     supine_scan = subject.scans["supine"].scan_object
 
-    # # --- 2. Convert Scans to Pyvista Image Grids ---
-    # prone_image_grid = breast_metadata.SCANToPyvistaImageGrid(prone_scan, orientation_flag)
-    # supine_image_grid = breast_metadata.SCANToPyvistaImageGrid(supine_scan, orientation_flag)
+    # --- 2. Convert Scans to Pyvista Image Grids ---
+    prone_image_grid = breast_metadata.SCANToPyvistaImageGrid(prone_scan, orientation_flag)
+    supine_image_grid = breast_metadata.SCANToPyvistaImageGrid(supine_scan, orientation_flag)
 
     # --- 3. Load Anatomical Landmarks from Subject ---
     anat_prone = subject.scans["prone"].anatomical_landmarks
@@ -1225,132 +1225,132 @@ def align_prone_to_supine(
     # ==========================================================
     # %% PLOT
     # ==========================================================
-    # title = "Relative to the sternal superior (Jugular notch) "
-    # plot_vector_three_views(landmark_prone_r1_transformed_left, landmark_r1_disp_vectors_left,
-    #                         landmark_prone_r1_transformed_right, landmark_r1_disp_vectors_right, title)
+    title = "Relative to the sternal superior (Jugular notch) "
+    plot_vector_three_views(landmark_prone_r1_transformed_left, landmark_r1_disp_vectors_left,
+                            landmark_prone_r1_transformed_right, landmark_r1_disp_vectors_right, title)
 
-    # title = "Relative to the nipples"
-    # plot_vector_three_views(X_left_r1, V_left_r1, X_right_r1, V_right_r1, title)
+    title = "Relative to the nipples"
+    plot_vector_three_views(X_left_r1, V_left_r1, X_right_r1, V_right_r1, title)
 
 
-    # # ==========================================================
-    # # %% RESAMPLE & PLOT
-    # # ==========================================================
-    # #   convert Pyvista image grid to SITK image
-    # prone_image_sitk = breast_metadata.PyvistaImageGridToSITKImage(prone_image_grid)
-    # prone_image_sitk = sitk.Cast(prone_image_sitk, sitk.sitkUInt8)
-    # supine_image_sitk = breast_metadata.PyvistaImageGridToSITKImage(supine_image_grid)
-    # supine_image_sitk = sitk.Cast(supine_image_sitk, sitk.sitkUInt8)
-    #
-    # #   initialise affine transformation matrix
-    # dimensions = 3
-    # affine = sitk.AffineTransform(dimensions)
-    # #   set transformation matrix from prone to supine
-    # T_prone_to_supine = np.linalg.inv(T_total)
-    # affine.SetTranslation(T_prone_to_supine[:3, 3])
-    # affine.SetMatrix(T_prone_to_supine[:3, :3].ravel())
-    #
-    # #   transform prone image to supine coordinate system
-    # #   sitk.Resample(input_image, reference_image, transform) takes a transformation matrix that maps points
-    # #   from the reference_image (output space) to it's corresponding location on the input_image (input space)
-    # prone_image_transformed = sitk.Resample(prone_image_sitk, supine_image_sitk, affine, sitk.sitkLinear, 1.0)
-    # prone_image_transformed = sitk.Cast(prone_image_transformed, sitk.sitkUInt8)
-    #
-    # #   get pixel coordinates of landmarks
-    # prone_scan_transformed = breast_metadata.SITKToScan(prone_image_transformed, orientation_flag, load_dicom=False,
-    #                                                     swap_axes=True)
-    # prone_image_transformed_grid = breast_metadata.SCANToPyvistaImageGrid(prone_scan_transformed, orientation_flag)
-    #
-    # sternum_prone_transformed_px = prone_scan_transformed.getPixelCoordinates(prone_sternum_aligned_final)
-    # sternum_supine_px = supine_scan.getPixelCoordinates(sternum_supine)
-    # nipple_prone_transformed_px = prone_scan_transformed.getPixelCoordinates(nipple_prone_transformed)
-    # landmark_prone_r1_transformed_px = prone_scan_transformed.getPixelCoordinates(landmark_prone_r1_transformed)
-    # landmark_prone_r2_transformed_px = prone_scan_transformed.getPixelCoordinates(landmark_prone_r2_transformed)
-    # landmark_supine_r1_px = supine_scan.getPixelCoordinates(landmark_supine_r1)
-    # landmark_supine_r2_px = supine_scan.getPixelCoordinates(landmark_supine_r2)
-    #
-    # # %%   plot
-    # # plot prone and supine ribcage point clouds before and after alignment
-    # plotter = pv.Plotter()
-    # plotter.add_text("Landmark Displacement After Alignment", font_size=24)
-    #
-    # # Plot the target supine landmarks (e.g., in green)
-    # plotter.add_points(landmark_supine_r1, render_points_as_spheres=True, color='green', point_size=10,
-    #                    label='Supine Landmarks'
-    #                    )
-    # # Plot the aligned prone landmarks (e.g., in red)
-    # plotter.add_points(landmark_prone_r1_transformed, render_points_as_spheres=True, color='red', point_size=10,
-    #                    label='Aligned Prone Landmarks'
-    #                    )
-    # # Add arrows to show the displacement vectors
-    # for start_point, vector in zip(landmark_prone_r1_transformed, landmark_r1_displacement_vectors):
-    #     plotter.add_arrows(start_point, vector, mag=1.0, color='yellow')
-    #
-    # opacity = np.linspace(0, 0.1, 100)
-    #
-    # plotter.add_volume(prone_image_transformed_grid, opacity=opacity, cmap='grey', show_scalar_bar=False)
-    # plotter.add_volume(supine_image_grid, opacity=opacity, cmap='coolwarm', show_scalar_bar=False)
-    # plotter.add_points(supine_ribcage_pc, color="tan", label='Point cloud', point_size=2,
-    #     render_points_as_spheres=True
-    # )
-    # plotter.add_points(prone_sternum_aligned_final, render_points_as_spheres=True, color='black', point_size=10,
-    #                    label='Aligned Prone Sternum'
-    #                    )
-    # plotter.add_points(sternum_supine, render_points_as_spheres=True, color='blue', point_size=10,
-    #                    label='Supine Sternum'
-    #                    )
-    # plotter.add_points(nipple_prone_transformed, render_points_as_spheres=True, color='pink', point_size=8,
-    #                    label='Aligned Prone Nipples'
-    #                    )
-    # plotter.add_points(nipple_supine, render_points_as_spheres=True, color='pink', point_size=8,
-    #                    label='Supine Nipples'
-    #                    )
-    # plotter.add_legend()
-    # # plotter.show()
+    # ==========================================================
+    # %% RESAMPLE & PLOT
+    # ==========================================================
+    #   convert Pyvista image grid to SITK image
+    prone_image_sitk = breast_metadata.PyvistaImageGridToSITKImage(prone_image_grid)
+    prone_image_sitk = sitk.Cast(prone_image_sitk, sitk.sitkUInt8)
+    supine_image_sitk = breast_metadata.PyvistaImageGridToSITKImage(supine_image_grid)
+    supine_image_sitk = sitk.Cast(supine_image_sitk, sitk.sitkUInt8)
+
+    #   initialise affine transformation matrix
+    dimensions = 3
+    affine = sitk.AffineTransform(dimensions)
+    #   set transformation matrix from prone to supine
+    T_prone_to_supine = np.linalg.inv(T_total)
+    affine.SetTranslation(T_prone_to_supine[:3, 3])
+    affine.SetMatrix(T_prone_to_supine[:3, :3].ravel())
+
+    #   transform prone image to supine coordinate system
+    #   sitk.Resample(input_image, reference_image, transform) takes a transformation matrix that maps points
+    #   from the reference_image (output space) to it's corresponding location on the input_image (input space)
+    prone_image_transformed = sitk.Resample(prone_image_sitk, supine_image_sitk, affine, sitk.sitkLinear, 1.0)
+    prone_image_transformed = sitk.Cast(prone_image_transformed, sitk.sitkUInt8)
+
+    #   get pixel coordinates of landmarks
+    prone_scan_transformed = breast_metadata.SITKToScan(prone_image_transformed, orientation_flag, load_dicom=False,
+                                                        swap_axes=True)
+    prone_image_transformed_grid = breast_metadata.SCANToPyvistaImageGrid(prone_scan_transformed, orientation_flag)
+
+    sternum_prone_transformed_px = prone_scan_transformed.getPixelCoordinates(prone_sternum_aligned_final)
+    sternum_supine_px = supine_scan.getPixelCoordinates(sternum_supine)
+    nipple_prone_transformed_px = prone_scan_transformed.getPixelCoordinates(nipple_prone_transformed)
+    landmark_prone_r1_transformed_px = prone_scan_transformed.getPixelCoordinates(landmark_prone_r1_transformed)
+    landmark_prone_r2_transformed_px = prone_scan_transformed.getPixelCoordinates(landmark_prone_r2_transformed)
+    landmark_supine_r1_px = supine_scan.getPixelCoordinates(landmark_supine_r1)
+    landmark_supine_r2_px = supine_scan.getPixelCoordinates(landmark_supine_r2)
+
+    # %%   plot
+    # plot prone and supine ribcage point clouds before and after alignment
+    plotter = pv.Plotter()
+    plotter.add_text("Landmark Displacement After Alignment", font_size=24)
+
+    # Plot the target supine landmarks (e.g., in green)
+    plotter.add_points(landmark_supine_r1, render_points_as_spheres=True, color='green', point_size=10,
+                       label='Supine Landmarks'
+                       )
+    # Plot the aligned prone landmarks (e.g., in red)
+    plotter.add_points(landmark_prone_r1_transformed, render_points_as_spheres=True, color='red', point_size=10,
+                       label='Aligned Prone Landmarks'
+                       )
+    # Add arrows to show the displacement vectors
+    for start_point, vector in zip(landmark_prone_r1_transformed, landmark_r1_displacement_vectors):
+        plotter.add_arrows(start_point, vector, mag=1.0, color='yellow')
+
+    opacity = np.linspace(0, 0.1, 100)
+
+    plotter.add_volume(prone_image_transformed_grid, opacity=opacity, cmap='grey', show_scalar_bar=False)
+    plotter.add_volume(supine_image_grid, opacity=opacity, cmap='coolwarm', show_scalar_bar=False)
+    plotter.add_points(supine_ribcage_pc, color="tan", label='Point cloud', point_size=2,
+        render_points_as_spheres=True
+    )
+    plotter.add_points(prone_sternum_aligned_final, render_points_as_spheres=True, color='black', point_size=10,
+                       label='Aligned Prone Sternum'
+                       )
+    plotter.add_points(sternum_supine, render_points_as_spheres=True, color='blue', point_size=10,
+                       label='Supine Sternum'
+                       )
+    plotter.add_points(nipple_prone_transformed, render_points_as_spheres=True, color='pink', point_size=8,
+                       label='Aligned Prone Nipples'
+                       )
+    plotter.add_points(nipple_supine, render_points_as_spheres=True, color='pink', point_size=8,
+                       label='Supine Nipples'
+                       )
+    plotter.add_legend()
+    plotter.show()
     # plotter.show(auto_close=False, interactive_update=True)
     # time.sleep(5)
     # plotter.close()
 
-    # # %%   scalar colour map (red-blue) to show alignment of prone transformed and supine MRIs
-    # breast_metadata.visualise_alignment_with_landmarks(
-    #     supine_image_sitk, prone_image_transformed, sternum_supine_px[0], sternum_prone_transformed_px[0],
-    #     orientation='axial')
-    # breast_metadata.visualise_alignment_with_landmarks(
-    #     supine_image_sitk, prone_image_transformed, sternum_supine_px[1], sternum_prone_transformed_px[1],
-    #     orientation='axial')
+    # %%   scalar colour map (red-blue) to show alignment of prone transformed and supine MRIs
+    breast_metadata.visualise_alignment_with_landmarks(
+        supine_image_sitk, prone_image_transformed, sternum_supine_px[0], sternum_prone_transformed_px[0],
+        orientation='axial')
+    breast_metadata.visualise_alignment_with_landmarks(
+        supine_image_sitk, prone_image_transformed, sternum_supine_px[1], sternum_prone_transformed_px[1],
+        orientation='axial')
 
-    # # Loop through each landmark and create a visualization
-    # for i in range(len(landmark_supine_r1_px)):
-    #     print(f"Visualizing alignment for landmark #{i + 1}")
-    #     breast_metadata.visualise_alignment_with_landmarks(
-    #         supine_image_sitk,
-    #         prone_image_transformed,
-    #         landmark_supine_r1_px[i],
-    #         landmark_prone_r1_transformed_px[i],
-    #         orientation='axial'
-    #     )
-    #
-    # # Loop through each landmark and create a visualization
-    # for i in range(len(landmark_supine_r1_px)):
-    #     print(f"Visualizing alignment for landmark #{i + 1}")
-    #     breast_metadata.visualise_alignment_with_landmarks(
-    #         supine_image_sitk,
-    #         prone_image_transformed,
-    #         landmark_supine_r1_px[i],
-    #         landmark_prone_r1_transformed_px[i],
-    #         orientation='sagittal'
-    #     )
-    #
-    # # Loop through each landmark and create a visualization
-    # for i in range(len(landmark_supine_r1_px)):
-    #     print(f"Visualizing alignment for landmark #{i + 1}")
-    #     breast_metadata.visualise_alignment_with_landmarks(
-    #         supine_image_sitk,
-    #         prone_image_transformed,
-    #         landmark_supine_r1_px[i],
-    #         landmark_prone_r1_transformed_px[i],
-    #         orientation='coronal'
-    #     )
+    # Loop through each landmark and create a visualization
+    for i in range(len(landmark_supine_r1_px)):
+        print(f"Visualizing alignment for landmark #{i + 1}")
+        breast_metadata.visualise_alignment_with_landmarks(
+            supine_image_sitk,
+            prone_image_transformed,
+            landmark_supine_r1_px[i],
+            landmark_prone_r1_transformed_px[i],
+            orientation='axial'
+        )
+
+    # Loop through each landmark and create a visualization
+    for i in range(len(landmark_supine_r1_px)):
+        print(f"Visualizing alignment for landmark #{i + 1}")
+        breast_metadata.visualise_alignment_with_landmarks(
+            supine_image_sitk,
+            prone_image_transformed,
+            landmark_supine_r1_px[i],
+            landmark_prone_r1_transformed_px[i],
+            orientation='sagittal'
+        )
+
+    # Loop through each landmark and create a visualization
+    for i in range(len(landmark_supine_r1_px)):
+        print(f"Visualizing alignment for landmark #{i + 1}")
+        breast_metadata.visualise_alignment_with_landmarks(
+            supine_image_sitk,
+            prone_image_transformed,
+            landmark_supine_r1_px[i],
+            landmark_prone_r1_transformed_px[i],
+            orientation='coronal'
+        )
 
 
 
@@ -1975,9 +1975,16 @@ def save_raw_data_to_excel(
 
     df_combined = pd.concat([df_existing, df_raw], ignore_index=True)
     df_combined = df_combined.sort_values(by=['Registrar', 'VL_ID'], kind='stable').reset_index(drop=True)
+
+    # Determine the mode: 'a' if file exists, 'w' if it's brand new
+    write_mode = 'a' if excel_path.exists() else 'w'
+    writer_kwargs = {'engine': 'openpyxl', 'mode': write_mode}
+    if write_mode == 'a':
+        writer_kwargs['if_sheet_exists'] = 'replace'
+
     try:
         # Use ExcelWriter as a context manager for safe file handling
-        with pd.ExcelWriter(excel_path, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
+        with pd.ExcelWriter(excel_path, **writer_kwargs) as writer:
             # Save raw data sheet
             df_combined.to_excel(writer, sheet_name='raw_data', index=False)
         print(f"Raw data successfully saved to {excel_path}")

@@ -4,9 +4,9 @@ import json
 import numpy as np
 import math
 from scipy.spatial import cKDTree
-# Related third party imports
-from tools import sitkTools
-import breast_metadata
+from skimage.segmentation import find_boundaries
+# import breast_metadata
+import external.breast_metadata_mdv.breast_metadata as breast_metadata
 
 
 class Metadata(object):
@@ -27,13 +27,13 @@ class Metadata(object):
         self.left_nipple = []
         self.right_nipple = []
         self.jugular_notch = []
-        self.sternal_angle = []
+        self.sternum_position = []
         self.spinal_cord = []
         self.vl_id = vl_id
         self.position = position
 
-        vl_id_str = 'VL{0:05d}'.format(vl_id)
 
+        vl_id_str = 'VL{0:05d}'.format(vl_id)
         self.metadata_path = os.path.join(dicome_path, vl_id_str, position)
 
         try:
@@ -56,12 +56,13 @@ class Metadata(object):
             print('Subject {0} sternum landmarks not found '.format(vl_id_str))
             pass
 
-        try:
-            vl_spine_path = os.path.join(spine_path, vl_id_str)
-            self.load_spinal_cord(vl_spine_path)
-        except:
-            print('Subject {0} spinal cord landmarks not found '.format(vl_id_str))
-            pass
+        # try:
+        #     vl_spine_path = os.path.join(spine_path, vl_id_str)
+        #     self.load_spinal_cord(vl_spine_path)
+        # except:
+        #     print('Subject {0} spinal cord landmarks not found '.format(vl_id_str))
+        #     pass
+
 
     def load_metadata_files(self, dicom_path):
 
@@ -73,9 +74,10 @@ class Metadata(object):
             self.height = dicom_images.height
             self.image_shape = dicom_images.shape
             self.pixel_spacing = dicom_images.spacing
+            self.image_position = dicom_images.origin
 
-        except:
-            print('Subject {0} dicom file not loading ').format(vl_str)
+        except Exception:
+            print(f'Subject {vl_str} dicom file not loading')
             return False
 
 
@@ -104,7 +106,9 @@ class Metadata(object):
                 #                                -pt['x'] + self.image_position[1] +
                 #                                self.pixel_spacing[1] * self.image_shape[1],
                 #                                pt['z'] - self.image_position[2]])
-                self.sternal_angle = np.array((pt['x'], pt['y'], pt['z']))
+                self.sternum_position = np.array((pt['x'], pt['y'], pt['z']))
+
+
 
     def load_nipple_landmarks(self, nipple_path):
         if os.path.exists(nipple_path) and len(os.listdir(nipple_path)) == 2:
@@ -121,7 +125,7 @@ class Metadata(object):
                 #                              -pt['x'] + self.image_position[1] +
                 #                              self.pixel_spacing[1] * self.image_shape[1],
                 #                              pt['z'] - self.image_position[2]])
-                self.left_nipple = np.array((pt['x'], pt['y'], pt['z']))  # position in MRI 3d location
+                self.left_nipple = np.array((pt['x'], pt['y'], pt['z']))
             if len(right_nipple_position):
                 self.right_nipple = np.zeros(3)
                 pt = right_nipple_position[self.position + '_point']['point']
@@ -148,7 +152,8 @@ class Metadata(object):
                 self.spinal_cord = np.array((pt['x'], pt['y'], pt['z']))
 
 
-def read_metadata(vl_ids, position, root_path_mri, nipple_path=None, sternum_path=None, spine_path=None):
+def read_metadata(vl_ids, position, root_path_mri, nipple_path=None, sternum_path=None, spine_path=None,
+                  dicom_cache=None, orientation_flag='RAI'):
     # Read metadata for a list of subject given a list of subjects ids
     # vl_ids = list of id identifying the volunteer number
     # root_path = path to the folders with MRI images
@@ -156,7 +161,6 @@ def read_metadata(vl_ids, position, root_path_mri, nipple_path=None, sternum_pat
     vl_metadata = {}
     for vl_id in vl_ids:
         vl_metadata[vl_id] = Metadata(vl_id, position, root_path_mri, nipple_path, sternum_path, spine_path)
-
     return vl_metadata
 
 
@@ -410,6 +414,27 @@ def writeLandmarks(proneLd, supineLd, filePath):
 #     dist, point_id = surface_tree.query(points)
 #     return dist, surface_points[point_id]
 
+def generate_image_coordinates(image_shape, spacing):
+    x, y, z = np.mgrid[0:image_shape[0],0:image_shape[1],0:image_shape[2]]
+    x = x*spacing[0]
+    y = y*spacing[1]
+    z = z*spacing[2]
+    image_coor = np.vstack((x.ravel(),y.ravel(),z.ravel())).transpose()
+    return image_coor, x, y, z
+
+def extract_contour_points(mask, nb_points):
+    labels = mask.values.copy()
+    boundaries = find_boundaries(labels,mode = 'inner').astype(np.uint8)
+    image_coordinates,x,y,z = generate_image_coordinates(labels.shape,mask.spacing)
+    points = np.array(image_coordinates+mask.origin)
+    points =points[np.array( boundaries.ravel()).astype(bool),:]
+    if (nb_points < len(points)):
+        step = math.trunc(len(points)/nb_points)
+        indx = range(0,len(points), step)
+        return points[indx,:]
+    else:
+        return points
+
 def shortest_distances(metadata, masks_path, fallback_masks_path, registrar_landmarks):
     distances_skin = {}
     closest_points_skin = {}
@@ -429,15 +454,17 @@ def shortest_distances(metadata, masks_path, fallback_masks_path, registrar_land
         # Check if skin mask path exists
         if os.path.exists(skin_mask_path) or os.path.exists(fallback_skin_mask_path):
             skin_mask = breast_metadata.readNIFTIImage(
-                skin_mask_path if os.path.exists(skin_mask_path) else fallback_skin_mask_path, swap_axes=True)
-            skin_points = sitkTools.extract_contour_points(skin_mask, 100000)
+                skin_mask_path if os.path.exists(skin_mask_path) else fallback_skin_mask_path,
+                orientation_flag='RAI', swap_axes=True)
+            skin_points = extract_contour_points(skin_mask, 100000)
             skin_points_kd_tree = cKDTree(skin_points)
 
             # Check if rib mask path exists
             if os.path.exists(rib_mask_path) or os.path.exists(fallback_rib_mask_path):
                 rib_mask = breast_metadata.readNIFTIImage(
-                    rib_mask_path if os.path.exists(rib_mask_path) else fallback_rib_mask_path, swap_axes=True)
-                rib_points = sitkTools.extract_contour_points(rib_mask, 100000)
+                    rib_mask_path if os.path.exists(rib_mask_path) else fallback_rib_mask_path,
+                    orientation_flag='RAI', swap_axes=True)
+                rib_points = extract_contour_points(rib_mask, 100000)
                 rib_points_kd_tree = cKDTree(rib_points)
 
                 for indx, landmarks in enumerate(registrar_landmarks.landmarks[vl_id]):
@@ -677,7 +704,7 @@ def corresponding_landmarks_between_registrars(registrar_a_prone, registrar_b_pr
 
 def displacement(landmarks_a, landmarks_b):
     # Displacement of the landmarks from prone to supine
-    # landmarks_a and b - disctionary contining selected landmarks for each volunteer
+    # landmarks_a and b - dictionary containing selected landmarks for each volunteer
     # in supine and prone position respectively
 
     landmarks_displacement = {}
@@ -843,6 +870,8 @@ def clock(registrar, metadata):
 #                 time[vl_id].append(clock)
 #
 #     return time, dist_landmark_nipple
+
+
 def getALFWorldCoordinates(rafPoints, image):
     # conver a list of points from RAF to ALF reference systems
     # using mri metadata from scan

@@ -204,9 +204,9 @@ def _load_scan_data(
         )
 
     # 2. Load DICOM Image and Metadata
-    # scan_obj, subject_meta = read_dicom_data(dicom_dir)
-    scan_obj = None
-    subject_meta = {}
+    scan_obj, subject_meta = read_dicom_data(dicom_dir)
+    # scan_obj = None
+    # subject_meta = {}
 
     # 3. Load Anatomical Landmarks
     anatomical_landmarks = read_anatomical_landmarks(anatomical_json_path)
