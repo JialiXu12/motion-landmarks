@@ -953,12 +953,12 @@ def align_prone_to_supine(
     supine_scan_data = subject.scans["supine"]
 
     # --- Use the helper function to get clean arrays ---
-    landmark_prone_r1 = get_landmarks_as_array(prone_scan_data, "anthony")
-    landmark_supine_r1 = get_landmarks_as_array(supine_scan_data, "anthony")
-    landmark_prone_r2 = get_landmarks_as_array(prone_scan_data, "holly")
-    landmark_supine_r2 = get_landmarks_as_array(supine_scan_data, "holly")
-    landmark_prone_ave = get_landmarks_as_array(prone_scan_data, "average")
-    landmark_supine_ave = get_landmarks_as_array(supine_scan_data, "average")
+    # landmark_prone_r1_raw = get_landmarks_as_array(prone_scan_data, "anthony")
+    # landmark_supine_r1_raw = get_landmarks_as_array(supine_scan_data, "anthony")
+    # landmark_prone_r2_raw = get_landmarks_as_array(prone_scan_data, "holly")
+    # landmark_supine_r2_raw = get_landmarks_as_array(supine_scan_data, "holly")
+    landmark_prone_ave_raw = get_landmarks_as_array(prone_scan_data, "average")
+    landmark_supine_ave_raw = get_landmarks_as_array(supine_scan_data, "average")
 
     # --- 5. Load Ribcage Mesh and Mask ---
     prone_ribcage = morphic.Mesh(str(prone_ribcage_mesh_path))
@@ -1138,136 +1138,136 @@ def align_prone_to_supine(
     # %% Landmark displacement after alignment
     # ==========================================================
 
-    # Aligned prone landmarks
-    landmark_prone_r1_transformed = apply_transform(landmark_prone_r1, T_total)
-    landmark_prone_r2_transformed = apply_transform(landmark_prone_r2, T_total)
-    landmark_prone_ave_transformed = apply_transform(landmark_prone_ave, T_total)
-
-    # Aligned prone nipple positions
+    # 1. Apply Transform to Prone Data
+    # ----------------------------------------------------------
+    landmark_prone_transformed = apply_transform(landmark_prone_ave_raw, T_total)
     nipple_prone_transformed = apply_transform(nipple_prone, T_total)
 
-    # Evaluate absolute displacement of landmarks from prone to supine
-    landmark_r1_displacement_vectors = landmark_supine_r1 - landmark_prone_r1_transformed
-    landmark_r1_displacement_magnitudes = np.linalg.norm(landmark_r1_displacement_vectors, axis=1)
-    landmark_r2_displacement_vectors = landmark_supine_r2 - landmark_prone_r2_transformed
-    landmark_r2_displacement_magnitudes = np.linalg.norm(landmark_r2_displacement_vectors, axis=1)
-    landmark_ave_displacement_vectors = landmark_supine_ave - landmark_prone_ave_transformed
-    landmark_ave_displacement_magnitudes = np.linalg.norm(landmark_ave_displacement_vectors, axis=1)
+    # Define Reference Points (Sternum Superior)
+    ref_sternum_prone = prone_sternum_aligned_final[0]
+    ref_sternum_supine = sternum_supine[0]
 
-    # Evaluate absolute displacement of nipples from prone to supine
-    nipple_displacement_vectors = nipple_supine - nipple_prone_transformed
-    nipple_displacement_magnitudes = np.linalg.norm(nipple_displacement_vectors, axis=1)
-    left_nipple_displacement_vectors = nipple_displacement_vectors[0]
-    right_nipple_displacement_vectors = nipple_displacement_vectors[1]
+    # 2. Calculate Displacements Relative to Sternum
+    # ----------------------------------------------------------
+    # This removes global chest translation, isolating soft tissue deformation.
+    # Landmark positions relative to sternum
+    lm_pos_prone_rel_sternum = landmark_prone_transformed - ref_sternum_prone
+    lm_pos_supine_rel_sternum = landmark_supine_ave_raw - ref_sternum_supine
 
-    # Evaluate landmark displacement relative to nipple displacement
-    dist_to_left = np.linalg.norm(landmark_supine_r1 - nipple_supine[0], axis=1)
-    dist_to_right = np.linalg.norm(landmark_supine_r1 - nipple_supine[1], axis=1)
-    # Create a boolean mask where True means the landmark is closer to the left nipple
-    is_closer_to_left = dist_to_left < dist_to_right
-    nipple_disp_vectors_closest = np.where(
-        is_closer_to_left[:, np.newaxis],  # Condition
-        left_nipple_displacement_vectors,  # Value if True
-        right_nipple_displacement_vectors  # Value if False
+    # Vector: Change in position relative to sternum (Deformation Vector)
+    lm_disp_rel_sternum = lm_pos_supine_rel_sternum - lm_pos_prone_rel_sternum
+    lm_disp_mag_rel_sternum = np.linalg.norm(lm_disp_rel_sternum, axis=1)
+
+    # Nipple positions relative to sternum
+    nipple_pos_prone_rel_sternum = nipple_prone_transformed - ref_sternum_prone
+    nipple_pos_supine_rel_sternum = nipple_supine - ref_sternum_supine
+
+    # Vector: Nipple displacement relative to sternum
+    nipple_disp_rel_sternum = nipple_pos_supine_rel_sternum - nipple_pos_prone_rel_sternum
+    nipple_disp_mag_rel_sternum = np.linalg.norm(nipple_disp_rel_sternum, axis=1)
+
+    # Extract individual nipple vectors for later masking
+    nipple_disp_left_vec = nipple_disp_rel_sternum[0]
+    nipple_disp_right_vec = nipple_disp_rel_sternum[1]
+
+    # 3. Associate Landmarks with Closest Nipple (Left vs Right)
+    # ----------------------------------------------------------
+    # Calculate Euclidean distance to each supine nipple to determine side
+    dist_to_left = np.linalg.norm(landmark_supine_ave_raw - nipple_supine[0], axis=1)
+    dist_to_right = np.linalg.norm(landmark_supine_ave_raw - nipple_supine[1], axis=1)
+
+    # Create a boolean mask where True means the landmark is on the Left breast
+    is_left_breast = dist_to_left < dist_to_right
+
+    # Assign the relevant nipple displacement vector to each landmark
+    closest_nipple_disp_vec = np.where(
+        is_left_breast[:, np.newaxis],
+        nipple_disp_left_vec,
+        nipple_disp_right_vec
     )
 
-    # Registrar 1
-    landmark_r1_rel_nipple_vectors = nipple_disp_vectors_closest - landmark_r1_displacement_vectors
-    landmark_r1_rel_nipple_mag = np.linalg.norm(landmark_r1_rel_nipple_vectors, axis=1)
+    # 4. Calculate Displacements Relative to Nipple
+    # ----------------------------------------------------------
+    # How much did the landmark move *compared* to how much the nipple moved?
+    # (Differential deformation)
+    lm_disp_rel_nipple = lm_disp_rel_sternum - closest_nipple_disp_vec
+    lm_disp_mag_rel_nipple = np.linalg.norm(lm_disp_rel_nipple, axis=1)
 
-    # Registrar 2
-    landmark_r2_rel_nipple_vectors = nipple_disp_vectors_closest - landmark_r2_displacement_vectors
-    landmark_r2_rel_nipple_mag = np.linalg.norm(landmark_r2_rel_nipple_vectors, axis=1)
+    # 5. Separate Data by Side for Plotting/Analysis
+    # ----------------------------------------------------------
+    left_nipple_prone_pos = nipple_prone_transformed[0]
+    right_nipple_prone_pos = nipple_prone_transformed[1]
 
-    # Average
-    landmark_ave_rel_nipple_vectors = nipple_disp_vectors_closest - landmark_ave_displacement_vectors
-    landmark_ave_rel_nipple_mag = np.linalg.norm(landmark_ave_rel_nipple_vectors, axis=1)
+    # --- Left Breast ---
+    lm_prone_left = landmark_prone_transformed[is_left_breast]
+    lm_disp_left = lm_disp_rel_sternum[is_left_breast]
 
-    # %% Separate Landmark Data by Closest Breast For Plots
-    left_nipple_prone = nipple_prone_transformed[0]
-    right_nipple_prone = nipple_prone_transformed[1]
+    # X: Initial position relative to the prone nipple (for quiver plot origin)
+    X_left = lm_prone_left - left_nipple_prone_pos
+    # V: Differential movement vector (Nipple vector - Landmark vector)
+    V_left = nipple_disp_left_vec - lm_disp_left
 
-    # R1 landmarks
-    landmark_prone_r1_transformed_left = landmark_prone_r1_transformed[is_closer_to_left]
-    landmark_r1_disp_vectors_left = landmark_r1_displacement_vectors[is_closer_to_left]
-    landmark_prone_r1_transformed_right = landmark_prone_r1_transformed[~is_closer_to_left]
-    landmark_r1_disp_vectors_right = landmark_r1_displacement_vectors[~is_closer_to_left]
+    # --- Right Breast ---
+    lm_prone_right = landmark_prone_transformed[~is_left_breast]
+    lm_disp_right = lm_disp_rel_sternum[~is_left_breast]
 
-    # separate into left and right based on proximity to nipples
-    X_left_r1 = landmark_prone_r1_transformed_left - left_nipple_prone
-    V_left_r1 = left_nipple_displacement_vectors - landmark_r1_disp_vectors_left
-    X_right_r1 = landmark_prone_r1_transformed_right - right_nipple_prone
-    V_right_r1 = right_nipple_displacement_vectors - landmark_r1_disp_vectors_right
-
-
-    # R2
-    landmark_prone_r2_transformed_left = landmark_prone_r2_transformed[is_closer_to_left]
-    landmark_r2_disp_vectors_left = landmark_r2_displacement_vectors[is_closer_to_left]
-    landmark_prone_r2_transformed_right = landmark_prone_r2_transformed[~is_closer_to_left]
-    landmark_r2_disp_vectors_right = landmark_r2_displacement_vectors[~is_closer_to_left]
-
-    X_left_r2 = landmark_prone_r2_transformed_left - left_nipple_prone
-    V_left_r2 = left_nipple_displacement_vectors - landmark_r2_disp_vectors_left
-    X_right_r2 = landmark_prone_r2_transformed_right - right_nipple_prone
-    V_right_r2 = right_nipple_displacement_vectors - landmark_r2_disp_vectors_right
-
-    #Average
-    landmark_prone_ave_transformed_left = landmark_prone_ave_transformed[is_closer_to_left]
-    landmark_ave_disp_vectors_left = landmark_ave_displacement_vectors[is_closer_to_left]
-    landmark_prone_ave_transformed_right = landmark_prone_ave_transformed[~is_closer_to_left]
-    landmark_ave_disp_vectors_right = landmark_ave_displacement_vectors[~is_closer_to_left]
-    X_left_ave = landmark_prone_ave_transformed_left - left_nipple_prone
-    V_left_ave = left_nipple_displacement_vectors - landmark_ave_disp_vectors_left
-    X_right_ave = landmark_prone_ave_transformed_right - right_nipple_prone
-    V_right_ave = right_nipple_displacement_vectors - landmark_ave_disp_vectors_right
+    # X: Initial position relative to the prone nipple
+    X_right = lm_prone_right - right_nipple_prone_pos
+    # V: Differential movement vector
+    V_right = nipple_disp_right_vec - lm_disp_right
 
 
     # ==========================================================
     # %% PLOT
     # ==========================================================
-    title = "Relative to the sternal superior (Jugular notch) "
-    plot_vector_three_views(landmark_prone_r1_transformed_left, landmark_r1_disp_vectors_left,
-                            landmark_prone_r1_transformed_right, landmark_r1_disp_vectors_right, title)
+    title_sternum = "Landmark Displacement Relative to Sternal Superior (Jugular Notch)"
+    lm_pos_left_rel_sternum = lm_pos_prone_rel_sternum[is_left_breast]
+    lm_pos_right_rel_sternum = lm_pos_prone_rel_sternum[~is_left_breast]
+    plot_vector_three_views(lm_pos_left_rel_sternum, lm_disp_left,
+                            lm_pos_right_rel_sternum, lm_disp_right, title_sternum)
 
-    title = "Relative to the nipples"
-    plot_vector_three_views(X_left_r1, V_left_r1, X_right_r1, V_right_r1, title)
+    title_nipple = "Landmark Displacement Relative to Nipples"
+    plot_vector_three_views(X_left, V_left, X_right, V_right, title_nipple)
 
 
     # ==========================================================
-    # %% RESAMPLE & PLOT
+    # %% RESAMPLE IMAGE (Prone -> Supine)
     # ==========================================================
-    #   convert Pyvista image grid to SITK image
+    # Convert Pyvista image grid to SITK image
     prone_image_sitk = breast_metadata.PyvistaImageGridToSITKImage(prone_image_grid)
     prone_image_sitk = sitk.Cast(prone_image_sitk, sitk.sitkUInt8)
     supine_image_sitk = breast_metadata.PyvistaImageGridToSITKImage(supine_image_grid)
     supine_image_sitk = sitk.Cast(supine_image_sitk, sitk.sitkUInt8)
 
-    #   initialise affine transformation matrix
-    dimensions = 3
-    affine = sitk.AffineTransform(dimensions)
-    #   set transformation matrix from prone to supine
+    # Setup Transform (Inverse of T_total)
     T_prone_to_supine = np.linalg.inv(T_total)
+    affine = sitk.AffineTransform(3)
     affine.SetTranslation(T_prone_to_supine[:3, 3])
     affine.SetMatrix(T_prone_to_supine[:3, :3].ravel())
 
-    #   transform prone image to supine coordinate system
-    #   sitk.Resample(input_image, reference_image, transform) takes a transformation matrix that maps points
-    #   from the reference_image (output space) to it's corresponding location on the input_image (input space)
+    # transform prone image to supine coordinate system
+    # sitk.Resample(input_image, reference_image, transform) takes a transformation matrix that maps points
+    # from the reference_image (output space) to it's corresponding location on the input_image (input space)
     prone_image_transformed = sitk.Resample(prone_image_sitk, supine_image_sitk, affine, sitk.sitkLinear, 1.0)
     prone_image_transformed = sitk.Cast(prone_image_transformed, sitk.sitkUInt8)
 
-    #   get pixel coordinates of landmarks
+    # get pixel coordinates of landmarks
     prone_scan_transformed = breast_metadata.SITKToScan(prone_image_transformed, orientation_flag, load_dicom=False,
                                                         swap_axes=True)
     prone_image_transformed_grid = breast_metadata.SCANToPyvistaImageGrid(prone_scan_transformed, orientation_flag)
 
-    sternum_prone_transformed_px = prone_scan_transformed.getPixelCoordinates(prone_sternum_aligned_final)
-    sternum_supine_px = supine_scan.getPixelCoordinates(sternum_supine)
-    nipple_prone_transformed_px = prone_scan_transformed.getPixelCoordinates(nipple_prone_transformed)
-    landmark_prone_r1_transformed_px = prone_scan_transformed.getPixelCoordinates(landmark_prone_r1_transformed)
-    landmark_prone_r2_transformed_px = prone_scan_transformed.getPixelCoordinates(landmark_prone_r2_transformed)
-    landmark_supine_r1_px = supine_scan.getPixelCoordinates(landmark_supine_r1)
-    landmark_supine_r2_px = supine_scan.getPixelCoordinates(landmark_supine_r2)
+    # Helper to batch convert physical points to pixel coordinates
+    def get_px_coords(scan_obj, points):
+        return np.array([scan_obj.getPixelCoordinates(p) for p in points])
+
+    # Convert Reference Points
+    sternum_prone_px = get_px_coords(prone_scan_transformed, prone_sternum_aligned_final)
+    sternum_supine_px = get_px_coords(supine_scan, sternum_supine)
+
+    # Convert Landmarks (Using the AVE variables consistently)
+    lm_prone_trans_px = get_px_coords(prone_scan_transformed, landmark_prone_transformed)
+    lm_supine_px = get_px_coords(supine_scan, landmark_supine_ave_raw)
+
 
     # %%   plot
     # plot prone and supine ribcage point clouds before and after alignment
@@ -1275,19 +1275,19 @@ def align_prone_to_supine(
     plotter.add_text("Landmark Displacement After Alignment", font_size=24)
 
     # Plot the target supine landmarks (e.g., in green)
-    plotter.add_points(landmark_supine_r1, render_points_as_spheres=True, color='green', point_size=10,
+    plotter.add_points(landmark_supine_ave_raw, render_points_as_spheres=True, color='green', point_size=10,
                        label='Supine Landmarks'
                        )
     # Plot the aligned prone landmarks (e.g., in red)
-    plotter.add_points(landmark_prone_r1_transformed, render_points_as_spheres=True, color='red', point_size=10,
+    plotter.add_points(landmark_prone_transformed, render_points_as_spheres=True, color='red', point_size=10,
                        label='Aligned Prone Landmarks'
                        )
     # Add arrows to show the displacement vectors
-    for start_point, vector in zip(landmark_prone_r1_transformed, landmark_r1_displacement_vectors):
+    global_disp_vectors = landmark_supine_ave_raw - landmark_prone_transformed
+    for start_point, vector in zip(landmark_prone_transformed, global_disp_vectors):
         plotter.add_arrows(start_point, vector, mag=1.0, color='yellow')
 
     opacity = np.linspace(0, 0.1, 100)
-
     plotter.add_volume(prone_image_transformed_grid, opacity=opacity, cmap='grey', show_scalar_bar=False)
     plotter.add_volume(supine_image_grid, opacity=opacity, cmap='coolwarm', show_scalar_bar=False)
     plotter.add_points(supine_ribcage_pc, color="tan", label='Point cloud', point_size=2,
@@ -1305,6 +1305,13 @@ def align_prone_to_supine(
     plotter.add_points(nipple_supine, render_points_as_spheres=True, color='pink', point_size=8,
                        label='Supine Nipples'
                        )
+
+    plotter.add_points(np.array([[0, 0, 0]]),
+                       render_points_as_spheres=True,
+                       color='orange',
+                       point_size=15,
+                       label='Origin (0,0,0)')
+
     plotter.add_legend()
     plotter.show()
     # plotter.show(auto_close=False, interactive_update=True)
@@ -1313,42 +1320,42 @@ def align_prone_to_supine(
 
     # %%   scalar colour map (red-blue) to show alignment of prone transformed and supine MRIs
     breast_metadata.visualise_alignment_with_landmarks(
-        supine_image_sitk, prone_image_transformed, sternum_supine_px[0], sternum_prone_transformed_px[0],
+        supine_image_sitk, prone_image_transformed, sternum_supine_px[0], sternum_prone_px[0],
         orientation='axial')
     breast_metadata.visualise_alignment_with_landmarks(
-        supine_image_sitk, prone_image_transformed, sternum_supine_px[1], sternum_prone_transformed_px[1],
+        supine_image_sitk, prone_image_transformed, sternum_supine_px[1], sternum_prone_px[1],
         orientation='axial')
 
     # Loop through each landmark and create a visualization
-    for i in range(len(landmark_supine_r1_px)):
+    for i in range(len(lm_supine_px)):
         print(f"Visualizing alignment for landmark #{i + 1}")
         breast_metadata.visualise_alignment_with_landmarks(
             supine_image_sitk,
             prone_image_transformed,
-            landmark_supine_r1_px[i],
-            landmark_prone_r1_transformed_px[i],
+            lm_supine_px[i],
+            lm_prone_trans_px[i],
             orientation='axial'
         )
 
     # Loop through each landmark and create a visualization
-    for i in range(len(landmark_supine_r1_px)):
+    for i in range(len(lm_supine_px)):
         print(f"Visualizing alignment for landmark #{i + 1}")
         breast_metadata.visualise_alignment_with_landmarks(
             supine_image_sitk,
             prone_image_transformed,
-            landmark_supine_r1_px[i],
-            landmark_prone_r1_transformed_px[i],
+            lm_supine_px[i],
+            lm_prone_trans_px[i],
             orientation='sagittal'
         )
 
     # Loop through each landmark and create a visualization
-    for i in range(len(landmark_supine_r1_px)):
+    for i in range(len(lm_supine_px)):
         print(f"Visualizing alignment for landmark #{i + 1}")
         breast_metadata.visualise_alignment_with_landmarks(
             supine_image_sitk,
             prone_image_transformed,
-            landmark_supine_r1_px[i],
-            landmark_prone_r1_transformed_px[i],
+            lm_supine_px[i],
+            lm_prone_trans_px[i],
             orientation='coronal'
         )
 
@@ -1367,35 +1374,35 @@ def align_prone_to_supine(
         "ribcage_inlier_RMSE": icp_result['inlier_rmse'],
         "nipple_prone_transformed": nipple_prone_transformed,
         "nipple_supine": nipple_supine,
-        "nipple_displacement_vectors": nipple_displacement_vectors,
-        "nipple_displacement_magnitudes": nipple_displacement_magnitudes,
-        "landmark_prone_ave_transformed": landmark_prone_ave_transformed,
-        "landmark_supine_ave": landmark_supine_ave,
-        "ld_ave_displacement_vectors": landmark_ave_displacement_vectors,
-        "ld_ave_displacement_magnitudes": landmark_ave_displacement_magnitudes,
-        "ld_ave_rel_nipple_vectors": landmark_ave_rel_nipple_vectors,
-        "ld_ave_rel_nipple_magnitudes": landmark_ave_rel_nipple_mag,
-        "ld_ave_rel_nipple_vectors_base_left":X_left_ave,
-        "ld_ave_rel_nipple_vectors_left":V_left_ave,
-        "ld_ave_rel_nipple_vectors_base_right":X_right_ave,
-        "ld_ave_rel_nipple_vectors_right":V_right_ave,
+        "nipple_displacement_vectors": nipple_disp_rel_sternum,
+        "nipple_displacement_magnitudes": nipple_disp_mag_rel_sternum,
+        "landmark_prone_ave_transformed": lm_pos_prone_rel_sternum,
+        "landmark_supine_ave": lm_pos_supine_rel_sternum,
+        "ld_ave_displacement_vectors": lm_disp_rel_sternum,
+        "ld_ave_displacement_magnitudes": lm_disp_mag_rel_sternum,
+        "ld_ave_rel_nipple_vectors": lm_disp_rel_nipple,
+        "ld_ave_rel_nipple_magnitudes": lm_disp_mag_rel_nipple,
+        "ld_ave_rel_nipple_vectors_base_left":X_left,
+        "ld_ave_rel_nipple_vectors_left":V_left,
+        "ld_ave_rel_nipple_vectors_base_right":X_right,
+        "ld_ave_rel_nipple_vectors_right":V_right
 
-        "r1_displacement_vectors": landmark_r1_displacement_vectors,
-        "r1_displacement_magnitudes": landmark_r1_displacement_magnitudes,
-        "r2_displacement_vectors": landmark_r2_displacement_vectors,
-        "r2_displacement_magnitudes": landmark_r2_displacement_magnitudes,
-        "r1_rel_nipple_vectors": landmark_r1_rel_nipple_vectors,
-        "r1_rel_nipple_magnitudes": landmark_r1_rel_nipple_mag,
-        "r2_rel_nipple_vectors": landmark_r2_rel_nipple_vectors,
-        "r2_rel_nipple_magnitudes": landmark_r2_rel_nipple_mag,
-        "r1_rel_nipple_vectors_base_left":X_left_r1,
-        "r1_rel_nipple_vectors_left":V_left_r1,
-        "r1_rel_nipple_vectors_base_right":X_right_r1,
-        "r1_rel_nipple_vectors_right":V_right_r1,
-        "r2_rel_nipple_vectors_base_left":X_left_r2,
-        "r2_rel_nipple_vectors_left":V_left_r2,
-        "r2_rel_nipple_vectors_base_right":X_right_r2,
-        "r2_rel_nipple_vectors_right":V_right_r2,
+        # "r1_displacement_vectors": landmark_r1_displacement_vectors,
+        # "r1_displacement_magnitudes": landmark_r1_displacement_magnitudes,
+        # "r2_displacement_vectors": landmark_r2_displacement_vectors,
+        # "r2_displacement_magnitudes": landmark_r2_displacement_magnitudes,
+        # "r1_rel_nipple_vectors": landmark_r1_rel_nipple_vectors,
+        # "r1_rel_nipple_magnitudes": landmark_r1_rel_nipple_mag,
+        # "r2_rel_nipple_vectors": landmark_r2_rel_nipple_vectors,
+        # "r2_rel_nipple_magnitudes": landmark_r2_rel_nipple_mag,
+        # "r1_rel_nipple_vectors_base_left":X_left_r1,
+        # "r1_rel_nipple_vectors_left":V_left_r1,
+        # "r1_rel_nipple_vectors_base_right":X_right_r1,
+        # "r1_rel_nipple_vectors_right":V_right_r1,
+        # "r2_rel_nipple_vectors_base_left":X_left_r2,
+        # "r2_rel_nipple_vectors_left":V_left_r2,
+        # "r2_rel_nipple_vectors_base_right":X_right_r2,
+        # "r2_rel_nipple_vectors_right":V_right_r2,
         # "prone_image_transformed": prone_image_transformed
     }
 
@@ -1661,17 +1668,13 @@ def save_results_to_excel(
     Gathers all analysis results from the various dictionaries
     and saves them to a single, comprehensive Excel file.
 
-    This function assumes the i-th landmark in 'correspondences[vl_id]'
-    matches the i-th entry in the alignment_results arrays (e.g.,
-    'r1_displacement_magnitudes'[i]).
+    This function now works with averaged landmarks only (no separate registrar sheets).
+    The alignment_results use 'ld_ave_' prefix for landmark displacement data.
     """
     print("\nSaving all results to Excel...\n============")
 
-    # --- Internal helper to build rows for one registrar ---
-    def _build_registrar_data(
-            registrar_name: str,
-            registrar_id: int
-    ) -> List[Dict[str, any]]:
+    # --- Internal helper to build rows for averaged landmarks ---
+    def _build_averaged_data() -> List[Dict[str, any]]:
 
         all_rows = []
 
@@ -1684,70 +1687,69 @@ def save_results_to_excel(
             subject = all_subjects[vl_id]
             align_res = alignment_results_all.get(vl_id)  # Safe get
 
-            # Get subject-level alignment data (nipples)
+            # Get subject-level alignment data (nipples and ribcage)
             if align_res:
                 nipple_disp_mag = align_res.get("nipple_displacement_magnitudes", [None, None])
                 nipple_disp_vec = align_res.get("nipple_displacement_vectors", [[None] * 3, [None] * 3])
                 nipple_prone_transformed = align_res.get("nipple_prone_transformed", [[None] * 3, [None] * 3])
                 nipple_supine = align_res.get("nipple_supine", [[None] * 3, [None] * 3])
+                ribcage_error_mean = align_res.get("ribcage_error_mean", None)
+                ribcage_error_std = align_res.get("ribcage_error_std", None)
+                ribcage_inlier_RMSE = align_res.get("ribcage_inlier_RMSE", None)
+                T_total = align_res.get("T_total", None)
             else:
                 nipple_disp_mag = [None, None]
                 nipple_disp_vec = [[None] * 3, [None] * 3]
                 nipple_prone_transformed = [[None] * 3, [None] * 3]
                 nipple_supine = [[None] * 3, [None] * 3]
+                ribcage_error_mean = None
+                ribcage_error_std = None
+                ribcage_inlier_RMSE = None
+                T_total = None
 
             # --- Loop through each landmark pair for this subject ---
             for i, pair in enumerate(pairs):
 
-                # Get the correct landmark name and alignment data for this registrar
-                if registrar_id == 1:
-                    lm_name = pair[0]
-                    reg_key = "r1"
-                elif registrar_id == 2:
-                    lm_name = pair[1]
-                    reg_key = "r2"
-                elif registrar_id == 3:
-                    lm_name = pair[0]
-                    reg_key = "ld_ave"
+                # For averaged landmarks, use the first name in the pair (they should be the same)
+                lm_name = pair[0]
 
-                # Get landmark-specific alignment data (from alignment_results)
+                # Get landmark-specific alignment data (from alignment_results with 'ld_ave_' prefix)
                 if align_res:
                     lm_prone_ave_transformed = align_res.get("landmark_prone_ave_transformed", [[None] * 3] * len(pairs))[i]
                     lm_supine_ave = align_res.get("landmark_supine_ave", [[None] * 3] * len(pairs))[i]
-                    lm_disp_mag = align_res.get(f"{reg_key}_displacement_magnitudes", [None] * len(pairs))[i]
-                    lm_disp_vec = align_res.get(f"{reg_key}_displacement_vectors", [[None] * 3] * len(pairs))[i]
-                    lm_rel_mag = align_res.get(f"{reg_key}_rel_nipple_magnitudes", [None] * len(pairs))[i]
-                    lm_rel_vec = align_res.get(f"{reg_key}_rel_nipple_vectors", [[None] * 3] * len(pairs))[i]
-                    ribcage_inlier_RMSE = align_res.get("ribcage_inlier_RMSE", None)
-
+                    lm_disp_mag = align_res.get("ld_ave_displacement_magnitudes", [None] * len(pairs))[i]
+                    lm_disp_vec = align_res.get("ld_ave_displacement_vectors", [[None] * 3] * len(pairs))[i]
+                    lm_rel_mag = align_res.get("ld_ave_rel_nipple_magnitudes", [None] * len(pairs))[i]
+                    lm_rel_vec = align_res.get("ld_ave_rel_nipple_vectors", [[None] * 3] * len(pairs))[i]
                 else:
-                    lm_prone_ave_transformed, lm_supine_ave, lm_disp_mag, lm_disp_vec, lm_rel_mag, lm_rel_vec \
-                        = [None] * 3, [None] * 3, None, [None] * 3, None, [None] * 3
-                    ribcage_inlier_RMSE = None
-
+                    lm_prone_ave_transformed = [None] * 3
+                    lm_supine_ave = [None] * 3
+                    lm_disp_mag = None
+                    lm_disp_vec = [None] * 3
+                    lm_rel_mag = None
+                    lm_rel_vec = [None] * 3
 
                 # --- Helper to safely get nested dictionary data ---
+                # Note: distance_results and clockface_results use "average" as registrar name
                 def get_data(results_dict: Dict, position: str, data_key: str, default: any = None) -> any:
                     try:
                         if data_key in ["skin_distances", "rib_distances", "skin_neighborhood_avg", "rib_neighborhood_avg"]:
                             # This data is in distance_results
-                            return results_dict[vl_id][position][registrar_name][data_key][lm_name]
+                            return results_dict[vl_id][position]["average"][data_key][lm_name]
                         else:
                             # This data is in clockface_results
-                            return results_dict[vl_id][position][registrar_name][lm_name][data_key]
+                            return results_dict[vl_id][position]["average"][lm_name][data_key]
                     except (KeyError, TypeError):
                         return default
 
-
                 # --- Build the row for this single landmark ---
                 row_data = {
-                    'Registrar': registrar_id,
                     'VL_ID': vl_id,
                     'Age': subject.age,
                     'Height [m]': subject.height,
                     'Weight [kg]': subject.weight,
                     'Landmark name': lm_name,
-                    'Landmark type': lm_name.split('_')[0],
+                    'Landmark type': lm_name.split('_')[0] if '_' in lm_name else lm_name,
 
                     'landmark side (prone)': get_data(clockface_results, "prone", "side"),
                     'Distance to nipple (prone) [mm]': get_data(clockface_results, "prone", "dist_to_nipple"),
@@ -1763,8 +1765,8 @@ def save_results_to_excel(
                     'Time (supine)': get_data(clockface_results, "supine", "time"),
                     'Quadrant (supine)': get_data(clockface_results, "supine", "quadrant"),
 
-                    "ribcage error mean": align_res.get("ribcage_error_mean"),
-                    "ribcage error std": align_res.get("ribcage_error_std"),
+                    "ribcage error mean": ribcage_error_mean,
+                    "ribcage error std": ribcage_error_std,
                     "ribcage inlier RMSE": ribcage_inlier_RMSE,
 
                     "left nipple prone transformed x": nipple_prone_transformed[0][0],
@@ -1812,8 +1814,7 @@ def save_results_to_excel(
 
                     'Mask skin neighborhood avg (prone)': get_data(distance_results, "prone", "skin_neighborhood_avg"),
                     'Mask rib neighborhood avg (prone)': get_data(distance_results, "prone", "rib_neighborhood_avg"),
-                    'Mask skin neighborhood avg (supine)': get_data(distance_results, "supine",
-                                                                    "skin_neighborhood_avg"),
+                    'Mask skin neighborhood avg (supine)': get_data(distance_results, "supine", "skin_neighborhood_avg"),
                     'Mask rib neighborhood avg (supine)': get_data(distance_results, "supine", "rib_neighborhood_avg"),
                 }
                 all_rows.append(row_data)
@@ -1823,81 +1824,47 @@ def save_results_to_excel(
         return all_rows
 
 
-
     # --- Main function logic ---
 
     # Create the output directory if it doesn't exist
     excel_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Build data for Registrar 1 ("anthony")
-    print(f"Building data for Registrar 1 ...")
-    r1_data = _build_registrar_data(
-        registrar_name="anthony",
-        registrar_id=1
-    )
-    df_r1 = pd.DataFrame(r1_data)
+    # Build data for averaged landmarks only
+    print(f"Building data for averaged landmark positions...")
+    ave_data = _build_averaged_data()
+    df_ave = pd.DataFrame(ave_data)
 
-    # Build data for Registrar 2 ("holly")
-    print(f"Building data for Registrar 2...")
-    r2_data = _build_registrar_data(
-        registrar_name="holly",
-        registrar_id=2
-    )
-    df_r2 = pd.DataFrame(r2_data)
+    # Get VL_IDs from new data
+    new_vl_ids = df_ave['VL_ID'].unique() if not df_ave.empty else []
 
-    # Build data for average landmark positions ("average")
-    print(f"Building data for average landmark positions...")
-    r3_data = _build_registrar_data(
-        registrar_name="average",
-        registrar_id=3
-    )
-    df_r3 = pd.DataFrame(r3_data)
-
-    # Combine and save
-    print("Combining dataframes...")
-    df_new = pd.concat([df_r1, df_r2], ignore_index=True)
-    new_vl_ids = df_new['VL_ID'].unique()
-    new_vl_ids_ave = df_r3['VL_ID'].unique()
-
+    # Load existing data if file exists
     df_existing = pd.DataFrame()
-    df_existing_ave = pd.DataFrame()
-
     if excel_path.exists():
         try:
-            df_existing = pd.read_excel(excel_path, sheet_name='processed_data', engine='openpyxl')
+            df_existing = pd.read_excel(excel_path, sheet_name='processed_ave_data', engine='openpyxl')
             if not df_existing.empty:
-                df_existing_filtered = df_existing[~df_existing['VL_ID'].isin(new_vl_ids)].copy()
-                df_existing = df_existing_filtered
+                # Filter out rows for VL_IDs that we're updating
+                df_existing = df_existing[~df_existing['VL_ID'].isin(new_vl_ids)].copy()
         except ValueError:
-            # Sheet is missing but file exists. df_existing remains empty.
-            print(f"Warning: Sheet 'processed_data' not found. It will be created.")
-        except Exception as e:
-            print(f"Error reading 'processed_data' sheet: {e}. Starting new sheet.")
-
-
-    if excel_path.exists():
-        try:
-            df_existing_ave = pd.read_excel(excel_path, sheet_name='processed_ave_data', engine='openpyxl')
-            if not df_existing_ave.empty:
-                df_existing_ave_filtered = df_existing_ave[~df_existing_ave['VL_ID'].isin(new_vl_ids_ave)].copy()
-                df_existing_ave = df_existing_ave_filtered
-        except ValueError:
-            # Sheet is missing but file exists. df_existing remains empty.
             print(f"Warning: Sheet 'processed_ave_data' not found. It will be created.")
         except Exception as e:
             print(f"Error reading 'processed_ave_data' sheet: {e}. Starting new sheet.")
 
-    df_combined = pd.concat([df_existing, df_new], ignore_index=True)
-    df_combined = df_combined.sort_values(by=['Registrar', 'VL_ID'], kind='stable').reset_index(drop=True)
+    # Combine existing and new data
+    print("Combining dataframes...")
+    df_combined = pd.concat([df_existing, df_ave], ignore_index=True)
+    df_combined = df_combined.sort_values(by=['VL_ID'], kind='stable').reset_index(drop=True)
 
-    df_ave_combined = pd.concat([df_existing_ave, df_r3], ignore_index=True)
-    df_ave_combined = df_ave_combined.sort_values(by=['VL_ID'], kind='stable').reset_index(drop=True)
+    # Determine write mode
+    write_mode = 'a' if excel_path.exists() else 'w'
+    writer_kwargs = {'engine': 'openpyxl', 'mode': write_mode}
+    if write_mode == 'a':
+        writer_kwargs['if_sheet_exists'] = 'replace'
 
     try:
         # Use ExcelWriter as a context manager for safe file handling
-        with pd.ExcelWriter(excel_path, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
-            df_combined.to_excel(writer, sheet_name='processed_data', index=False)
-            df_ave_combined.to_excel(writer, sheet_name='processed_ave_data', index=False)
+        with pd.ExcelWriter(excel_path, **writer_kwargs) as writer:
+            df_combined.to_excel(writer, sheet_name='processed_ave_data', index=False)
         print(f"Data successfully saved to {excel_path}")
     except Exception as e:
         print(f"An error occurred while saving: {e}")

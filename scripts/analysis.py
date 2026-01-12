@@ -12,6 +12,7 @@ from statsmodels.stats.multicomp import MultiComparison
 from pingouin import welch_anova, pairwise_gameshowell, rm_anova, pairwise_ttests
 from matplotlib.patches import Circle, Arc
 
+
 OUTPUT_DIR = Path("../output")
 EXCEL_FILE_PATH = OUTPUT_DIR / "landmark_results_v2_2025_12_01.xlsx"
 
@@ -403,6 +404,232 @@ def investigate_proximity_effect(df):
         print(f"  - Superficial Mean (N={len(superficial)}): {superficial.mean():.2f} mm")
         print(f"  - Deep Mean (N={len(deep)}): {deep.mean():.2f} mm")
         print(f"  - Difference Significance: p={p_comp:.4e}")
+
+
+
+
+def plot_vectors_for_vl81(df_ave):
+    """
+    Plots displacement vectors (Prone -> Supine) for VL_ID 81 using
+    the style defined in utils_plot.plot_vector_three_views.
+    """
+    print("\n--- Plotting Vectors for VL 81 ---")
+
+    # 1. Filter for VL 81
+    df_subset = df_ave[df_ave['VL_ID'] == 81].copy()
+
+    if df_subset.empty:
+        print("No data found for VL_ID 81.")
+        return
+
+    # 2. Separate into Left (LB) and Right (RB) breasts
+    # Note: Adjust column names if they differ slightly in your Excel
+    left_df = df_subset[df_subset['landmark side (prone)'] == 'LB']
+    right_df = df_subset[df_subset['landmark side (prone)'] == 'RB']
+
+    # 3. Helper to extract Base Points (Prone) and Vectors (Supine - Prone)
+    def get_points_and_vectors(sub_df):
+        if sub_df.empty:
+            return np.empty((0, 3)), np.empty((0, 3))
+
+        # Extract Prone (Start/Base points)
+        # Using 'landmark ave prone transformed' columns based on your file snippet
+        prone_x = sub_df['landmark ave prone transformed x'].values
+        prone_y = sub_df['landmark ave prone transformed y'].values
+        prone_z = sub_df['landmark ave prone transformed z'].values
+        base_points = np.column_stack((prone_x, prone_y, prone_z))
+
+        # Extract Supine (End points)
+        supine_x = sub_df['landmark ave supine x'].values
+        supine_y = sub_df['landmark ave supine y'].values
+        supine_z = sub_df['landmark ave supine z'].values
+        end_points = np.column_stack((supine_x, supine_y, supine_z))
+
+        # Calculate Vector = End - Start
+        vectors = end_points - base_points
+        return base_points, vectors
+
+    base_left, vec_left = get_points_and_vectors(left_df)
+    base_right, vec_right = get_points_and_vectors(right_df)
+
+    # 4. Define Plane Configuration (Copied from utils_plot.py)
+    # 0: X (Right/Left), 1: Y (Ant/Post), 2: Z (Inf/Sup)
+    PLANE_CONFIG = {
+        'Coronal': {
+            'axes': (0, 2),  # X vs Z
+            'xlabel': "Right-Left (mm)", 'ylabel': "Inf-Sup (mm)",
+            'shape': 'Circle'
+        },
+        'Sagittal': {
+            'axes': (1, 2),  # Y vs Z
+            'xlabel': "Ant-Post (mm)", 'ylabel': "Inf-Sup (mm)",
+            'shape': 'SemiCircle'
+        },
+        'Axial': {
+            'axes': (0, 1),  # X vs Y
+            'xlabel': "Right-Left (mm)", 'ylabel': "Ant-Post (mm)",
+            'shape': 'SemiCircle'
+        }
+    }
+
+    lims = (-200, 200)  # Adjust limits as needed, utils_plot used (-400, 400)
+    radius = 150  # Radius for the breast outline representation
+
+    # 5. Plotting Loop
+    for plane_name, config in PLANE_CONFIG.items():
+        axis_x_idx, axis_y_idx = config['axes']
+
+        fig, (ax_right, ax_left) = plt.subplots(1, 2, figsize=(12, 6), sharex=True, sharey=True)
+        fig.suptitle(f"VL 81 - {plane_name} Plane: Prone to Supine Displacement", fontsize=14)
+
+        # --- Subplot Helper ---
+        def plot_breast_side(ax, base, vec, title, side_color):
+            ax.set_title(title)
+            ax.set_xlabel(config['xlabel'])
+            ax.set_ylabel(config['ylabel'])
+            ax.set_xlim(lims)
+            ax.set_ylim(lims)
+            ax.set_aspect('equal', adjustable='box')
+            ax.grid(True, linestyle='--', alpha=0.5)
+
+            # Draw Quadrant Lines (Nipple Centered at 0,0)
+            ax.plot(0, 0, 'ro', markersize=8, label='Nipple (Prone)', zorder=5)
+
+            if plane_name == 'Coronal':
+                ax.axhline(0, color='red', lw=1)
+                ax.axvline(0, color='red', lw=1)
+                # Full Circle
+                circle = Circle((0, 0), radius, fill=False, color='black', lw=1, linestyle='--')
+                ax.add_artist(circle)
+
+            elif plane_name == 'Sagittal':
+                ax.axhline(0, color='red', lw=1)
+                # SemiCircle (Anterior is usually +Y)
+                arc = Arc((0, 0), radius * 2, radius * 2, theta1=0, theta2=180, color='black', linestyle='--')
+                ax.add_artist(arc)
+                ax.plot([-radius, radius], [0, 0], color='black', lw=1)
+
+            elif plane_name == 'Axial':
+                ax.axvline(0, color='red', lw=1)
+                # SemiCircle (Anterior is usually +Y)
+                arc = Arc((0, 0), radius * 2, radius * 2, theta1=0, theta2=180, color='black', linestyle='--')
+                ax.add_artist(arc)
+                ax.plot([-radius, radius], [0, 0], color='black', lw=1)
+
+            # Plot Vectors
+            if len(base) > 0:
+                ax.quiver(
+                    base[:, axis_x_idx], base[:, axis_y_idx],  # X, Y start
+                    vec[:, axis_x_idx], vec[:, axis_y_idx],  # U, V components
+                    angles='xy', scale_units='xy', scale=1,
+                    color=side_color, width=0.005, headwidth=4
+                )
+                # Plot start points
+                ax.scatter(base[:, axis_x_idx], base[:, axis_y_idx], c=side_color, s=20)
+
+        # Plot Right Breast (on the left subplot usually, or labeled explicitly)
+        plot_breast_side(ax_right, base_right, vec_right, "Right Breast", 'blue')
+
+        # Plot Left Breast
+        plot_breast_side(ax_left, base_left, vec_left, "Left Breast", 'green')
+
+        plt.tight_layout()
+        plt.show()
+
+
+def plot_combined_vectors_vl81(df_ave):
+    """
+    Plots Left and Right breast vectors on the SAME plot for VL_ID 81.
+    - Blue = Right Breast (RB)
+    - Green = Left Breast (LB)
+    - Red Dot = Global Origin (0,0) (Sternum/Scanner Center)
+    """
+    print("\n--- Plotting Combined Vectors for VL 81 ---")
+
+    # 1. Filter Data
+    df_subset = df_ave[df_ave['VL_ID'] == 81].copy()
+    if df_subset.empty:
+        print("No data found for VL_ID 81.")
+        return
+
+    # 2. Separate Data
+    left_df = df_subset[df_subset['landmark side (prone)'] == 'LB']
+    right_df = df_subset[df_subset['landmark side (prone)'] == 'RB']
+
+    # 3. Helper to extract data
+    def get_data(sub_df):
+        if sub_df.empty: return np.empty((0, 3)), np.empty((0, 3))
+        # Start (Prone)
+        p = sub_df[['landmark ave prone transformed x',
+                    'landmark ave prone transformed y',
+                    'landmark ave prone transformed z']].values
+        # End (Supine)
+        s = sub_df[['landmark ave supine x',
+                    'landmark ave supine y',
+                    'landmark ave supine z']].values
+        # Vector
+        v = s - p
+        return p, v
+
+    base_L, vec_L = get_data(left_df)
+    base_R, vec_R = get_data(right_df)
+
+    # 4. Plane Configuration
+    # 0=X (LR), 1=Y (AP), 2=Z (SI)
+    # Medical Convention: usually +X is Left, -X is Right (check your data!)
+    PLANE_CONFIG = {
+        'Coronal': {'axes': (0, 2), 'xlabel': 'Right <--- X (mm) ---> Left', 'ylabel': 'Inf <--- Z (mm) ---> Sup'},
+        'Sagittal': {'axes': (1, 2), 'xlabel': 'Post <--- Y (mm) ---> Ant', 'ylabel': 'Inf <--- Z (mm) ---> Sup'},
+        'Axial': {'axes': (0, 1), 'xlabel': 'Right <--- X (mm) ---> Left', 'ylabel': 'Post <--- Y (mm) ---> Ant'}
+    }
+
+    lims = (-250, 250)  # Wider limits to fit both breasts
+
+    # 5. Plotting Loop
+    for plane, config in PLANE_CONFIG.items():
+        ix, iy = config['axes']
+
+        # Create ONE figure per plane
+        fig, ax = plt.subplots(figsize=(10, 8))
+        ax.set_title(f"VL 81 - {plane} View (Both Breasts)", fontsize=14, fontweight='bold')
+        ax.set_xlabel(config['xlabel'])
+        ax.set_ylabel(config['ylabel'])
+        ax.set_xlim(lims)
+        ax.set_ylim(lims)
+        ax.set_aspect('equal')
+        ax.grid(True, linestyle='--', alpha=0.5)
+
+        # --- A. PLOT RIGHT BREAST (Blue) ---
+        if len(base_R) > 0:
+            ax.quiver(base_R[:, ix], base_R[:, iy], vec_R[:, ix], vec_R[:, iy],
+                      angles='xy', scale_units='xy', scale=1,
+                      color='blue', width=0.004, label='Right Breast (RB)')
+            ax.scatter(base_R[:, ix], base_R[:, iy], c='blue', s=15)
+
+        # --- B. PLOT LEFT BREAST (Green) ---
+        if len(base_L) > 0:
+            ax.quiver(base_L[:, ix], base_L[:, iy], vec_L[:, ix], vec_L[:, iy],
+                      angles='xy', scale_units='xy', scale=1,
+                      color='green', width=0.004, label='Left Breast (LB)')
+            ax.scatter(base_L[:, ix], base_L[:, iy], c='green', s=15)
+
+        # --- C. PLOT ORIGIN (Red) ---
+        ax.plot(0, 0, 'ro', markersize=10, label='Origin (0,0)', zorder=10)
+        ax.text(5, 5, '(0,0)', color='red', fontsize=10, fontweight='bold')
+
+        # --- D. ANATOMICAL LABELS ---
+        # Assuming standard coordinates where X<0 is Right and X>0 is Left
+        if plane in ['Coronal', 'Axial']:
+            # Place labels at the edges of the plot
+            ax.text(lims[0] * 0.8, 0, "RIGHT SIDE", color='blue', alpha=0.3,
+                    fontsize=20, fontweight='bold', ha='center', va='center')
+            ax.text(lims[1] * 0.8, 0, "LEFT SIDE", color='green', alpha=0.3,
+                    fontsize=20, fontweight='bold', ha='center', va='center')
+
+        ax.legend(loc='upper right')
+        plt.tight_layout()
+        plt.show()
+
 
 
 def plot_breast_motion_vectors(df, radius=100):
@@ -966,3 +1193,9 @@ if __name__ == "__main__":
     df_ave_rename['Side'] = df_ave_rename['Side'].replace({'LB': 'Left', 'RB': 'Right'})
     plot_breast_motion_vectors(df_ave_rename, radius=250)
 
+
+
+    # 2. Run the new plotting function
+    plot_vectors_for_vl81(df_ave)
+
+    plot_combined_vectors_vl81(df_ave)
