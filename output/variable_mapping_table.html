@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+table {
+  border-collapse: collapse;
+  width: 100%;
+  font-family: Arial, sans-serif;
+  font-size: 11pt;
+}
+th {
+  background-color: #4472C4;
+  color: white;
+  padding: 8px;
+  text-align: left;
+  border: 1px solid #ddd;
+  font-weight: bold;
+}
+td {
+  padding: 8px;
+  border: 1px solid #ddd;
+  vertical-align: top;
+}
+tr:nth-child(even) {
+  background-color: #f2f2f2;
+}
+.section-header {
+  background-color: #D9E1F2;
+  font-weight: bold;
+  color: #000;
+}
+h1 {
+  color: #2E5090;
+  font-family: Arial, sans-serif;
+}
+code {
+  background-color: #f4f4f4;
+  padding: 2px 4px;
+  font-family: 'Courier New', monospace;
+  font-size: 10pt;
+}
+</style>
+</head>
+<body>
+
+<h1>Variable Mapping Table: processed_ave_data Sheet (Excel) ↔ align_prone_to_supine Function</h1>
+
+<table>
+<thead>
+<tr>
+  <th>Section</th>
+  <th>Excel Column Name</th>
+  <th>Variable in align_prone_to_supine</th>
+  <th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr class="section-header">
+  <td colspan="4"><strong>SUBJECT METADATA</strong></td>
+</tr>
+<tr>
+  <td>SUBJECT METADATA</td>
+  <td>VL_ID</td>
+  <td><code>subject.subject_id</code></td>
+  <td>Subject/patient identifier</td>
+</tr>
+<tr>
+  <td>SUBJECT METADATA</td>
+  <td>Age</td>
+  <td><code>subject.age</code></td>
+  <td>Subject's age (from Subject object)</td>
+</tr>
+<tr>
+  <td>SUBJECT METADATA</td>
+  <td>Height [m]</td>
+  <td><code>subject.height</code></td>
+  <td>Subject's height in meters</td>
+</tr>
+<tr>
+  <td>SUBJECT METADATA</td>
+  <td>Weight [kg]</td>
+  <td><code>subject.weight</code></td>
+  <td>Subject's weight in kilograms</td>
+</tr>
+
+<tr class="section-header">
+  <td colspan="4"><strong>LANDMARK IDENTIFICATION</strong></td>
+</tr>
+<tr>
+  <td>LANDMARK IDENTIFICATION</td>
+  <td>Landmark name</td>
+  <td><code>lm_name (from correspondences)</code></td>
+  <td>Name of the soft tissue landmark (e.g., "fibroadenoma_1")</td>
+</tr>
+<tr>
+  <td>LANDMARK IDENTIFICATION</td>
+  <td>Landmark type</td>
+  <td><code>lm_name.split('_')[0]</code></td>
+  <td>Landmark category extracted from name (e.g., "fibroadenoma", "cyst")</td>
+</tr>
+
+<tr class="section-header">
+  <td colspan="4"><strong>ALIGNMENT QUALITY METRICS</strong></td>
+</tr>
+<tr>
+  <td>ALIGNMENT QUALITY METRICS</td>
+  <td>ribcage error mean</td>
+  <td><code>np.mean(rib_error_mag)</code></td>
+  <td>Mean error in ribcage alignment after ICP refinement (mm)</td>
+</tr>
+<tr>
+  <td>ALIGNMENT QUALITY METRICS</td>
+  <td>ribcage error std</td>
+  <td><code>np.std(rib_error_mag)</code></td>
+  <td>Standard deviation of ribcage alignment errors (mm)</td>
+</tr>
+<tr>
+  <td>ALIGNMENT QUALITY METRICS</td>
+  <td>ribcage inlier RMSE</td>
+  <td><code>icp_result['inlier_rmse']</code></td>
+  <td>Root mean square error of inlier points after ICP alignment (mm)</td>
+</tr>
+
+<tr class="section-header">
+  <td colspan="4"><strong>STERNUM POSITIONS (PRONE - After Transformation)</strong></td>
+</tr>
+<tr>
+  <td>STERNUM POSITIONS (PRONE)</td>
+  <td>sternum superior prone transformed x</td>
+  <td><code>sternum_prone_transformed[0][0]</code></td>
+  <td>X-coordinate of sternum superior (jugular notch) in prone position after alignment transformation (mm)</td>
+</tr>
+<tr>
+  <td>STERNUM POSITIONS (PRONE)</td>
+  <td>sternum superior prone transformed y</td>
+  <td><code>sternum_prone_transformed[0][1]</code></td>
+  <td>Y-coordinate of sternum superior (jugular notch) in prone position after alignment transformation (mm)</td>
+</tr>
+<tr>
+  <td>STERNUM POSITIONS (PRONE)</td>
+  <td>sternum superior prone transformed z</td>
+  <td><code>sternum_prone_transformed[0][2]</code></td>
+  <td>Z-coordinate of sternum superior (jugular notch) in prone position after alignment transformation (mm)</td>
+</tr>
+
+<tr class="section-header">
+  <td colspan="4"><strong>STERNUM POSITIONS (SUPINE - Original)</strong></td>
+</tr>
+<tr>
+  <td>STERNUM POSITIONS (SUPINE)</td>
+  <td>sternum superior supine x</td>
+  <td><code>sternum_supine[0][0]</code></td>
+  <td>X-coordinate of sternum superior (jugular notch) in supine position (mm)</td>
+</tr>
+<tr>
+  <td>STERNUM POSITIONS (SUPINE)</td>
+  <td>sternum superior supine y</td>
+  <td><code>sternum_supine[0][1]</code></td>
+  <td>Y-coordinate of sternum superior (jugular notch) in supine position (mm)</td>
+</tr>
+<tr>
+  <td>STERNUM POSITIONS (SUPINE)</td>
+  <td>sternum superior supine z</td>
+  <td><code>sternum_supine[0][2]</code></td>
+  <td>Z-coordinate of sternum superior (jugular notch) in supine position (mm)</td>
+</tr>
+
+<tr class="section-header">
+  <td colspan="4"><strong>NIPPLE POSITIONS (PRONE - After Transformation)</strong></td>
+</tr>
+<tr>
+  <td>NIPPLE POSITIONS (PRONE)</td>
+  <td>left nipple prone transformed x</td>
+  <td><code>nipple_prone_transformed[0][0]</code></td>
+  <td>X-coordinate of left nipple in prone position after alignment transformation (mm)</td>
+</tr>
+<tr>
+  <td>NIPPLE POSITIONS (PRONE)</td>
+  <td>left nipple prone transformed y</td>
+  <td><code>nipple_prone_transformed[0][1]</code></td>
+  <td>Y-coordinate of left nipple in prone position after alignment transformation (mm)</td>
+</tr>
+<tr>
+  <td>NIPPLE POSITIONS (PRONE)</td>
+  <td>left nipple prone transformed z</td>
+  <td><code>nipple_prone_transformed[0][2]</code></td>
+  <td>Z-coordinate of left nipple in prone position after alignment transformation (mm)</td>
+</tr>
+<tr>
+  <td>NIPPLE POSITIONS (PRONE)</td>
+  <td>right nipple prone transformed x</td>
+  <td><code>nipple_prone_transformed[1][0]</code></td>
+  <td>X-coordinate of right nipple in prone position after alignment transformation (mm)</td>
+</tr>
+<tr>
+  <td>NIPPLE POSITIONS (PRONE)</td>
+  <td>right nipple prone transformed y</td>
+  <td><code>nipple_prone_transformed[1][1]</code></td>
+  <td>Y-coordinate of right nipple in prone position after alignment transformation (mm)</td>
+</tr>
+<tr>
+  <td>NIPPLE POSITIONS (PRONE)</td>
+  <td>right nipple prone transformed z</td>
+  <td><code>nipple_prone_transformed[1][2]</code></td>
+  <td>Z-coordinate of right nipple in prone position after alignment transformation (mm)</td>
+</tr>
+
+<tr class="section-header">
+  <td colspan="4"><strong>NIPPLE POSITIONS (SUPINE - Original)</strong></td>
+</tr>
+<tr>
+  <td>NIPPLE POSITIONS (SUPINE)</td>
+  <td>left nipple supine x</td>
+  <td><code>nipple_supine[0][0]</code></td>
+  <td>X-coordinate of left nipple in supine position (mm)</td>
+</tr>
+<tr>
+  <td>NIPPLE POSITIONS (SUPINE)</td>
+  <td>left nipple supine y</td>
+  <td><code>nipple_supine[0][1]</code></td>
+  <td>Y-coordinate of left nipple in supine position (mm)</td>
+</tr>
+<tr>
+  <td>NIPPLE POSITIONS (SUPINE)</td>
+  <td>left nipple supine z</td>
+  <td><code>nipple_supine[0][2]</code></td>
+  <td>Z-coordinate of left nipple in supine position (mm)</td>
+</tr>
+<tr>
+  <td>NIPPLE POSITIONS (SUPINE)</td>
+  <td>right nipple supine x</td>
+  <td><code>nipple_supine[1][0]</code></td>
+  <td>X-coordinate of right nipple in supine position (mm)</td>
+</tr>
+<tr>
+  <td>NIPPLE POSITIONS (SUPINE)</td>
+  <td>right nipple supine y</td>
+  <td><code>nipple_supine[1][1]</code></td>
+  <td>Y-coordinate of right nipple in supine position (mm)</td>
+</tr>
+<tr>
+  <td>NIPPLE POSITIONS (SUPINE)</td>
+  <td>right nipple supine z</td>
+  <td><code>nipple_supine[1][2]</code></td>
+  <td>Z-coordinate of right nipple in supine position (mm)</td>
+</tr>
+
+<tr class="section-header">
+  <td colspan="4"><strong>LANDMARK POSITIONS (PRONE - Relative to Sternum)</strong></td>
+</tr>
+<tr>
+  <td>LANDMARK POSITIONS (PRONE)</td>
+  <td>landmark ave prone transformed x</td>
+  <td><code>lm_pos_prone_rel_sternum[i][0]</code></td>
+  <td>X-coordinate of landmark in prone position after transformation, relative to sternum superior (mm)</td>
+</tr>
+<tr>
+  <td>LANDMARK POSITIONS (PRONE)</td>
+  <td>landmark ave prone transformed y</td>
+  <td><code>lm_pos_prone_rel_sternum[i][1]</code></td>
+  <td>Y-coordinate of landmark in prone position after transformation, relative to sternum superior (mm)</td>
+</tr>
+<tr>
+  <td>LANDMARK POSITIONS (PRONE)</td>
+  <td>landmark ave prone transformed z</td>
+  <td><code>lm_pos_prone_rel_sternum[i][2]</code></td>
+  <td>Z-coordinate of landmark in prone position after transformation, relative to sternum superior (mm)</td>
+</tr>
+
+<tr class="section-header">
+  <td colspan="4"><strong>LANDMARK POSITIONS (SUPINE - Relative to Sternum)</strong></td>
+</tr>
+<tr>
+  <td>LANDMARK POSITIONS (SUPINE)</td>
+  <td>landmark ave supine x</td>
+  <td><code>lm_pos_supine_rel_sternum[i][0]</code></td>
+  <td>X-coordinate of landmark in supine position, relative to sternum superior (mm)</td>
+</tr>
+<tr>
+  <td>LANDMARK POSITIONS (SUPINE)</td>
+  <td>landmark ave supine y</td>
+  <td><code>lm_pos_supine_rel_sternum[i][1]</code></td>
+  <td>Y-coordinate of landmark in supine position, relative to sternum superior (mm)</td>
+</tr>
+<tr>
+  <td>LANDMARK POSITIONS (SUPINE)</td>
+  <td>landmark ave supine z</td>
+  <td><code>lm_pos_supine_rel_sternum[i][2]</code></td>
+  <td>Z-coordinate of landmark in supine position, relative to sternum superior (mm)</td>
+</tr>
+
+<tr class="section-header">
+  <td colspan="4"><strong>NIPPLE DISPLACEMENT (Magnitude)</strong></td>
+</tr>
+<tr>
+  <td>NIPPLE DISPLACEMENT</td>
+  <td>Left nipple displacement [mm]</td>
+  <td><code>nipple_disp_mag_rel_sternum[0]</code></td>
+  <td>Magnitude of left nipple displacement from prone to supine (mm), relative to sternum</td>
+</tr>
+<tr>
+  <td>NIPPLE DISPLACEMENT</td>
+  <td>Right nipple displacement [mm]</td>
+  <td><code>nipple_disp_mag_rel_sternum[1]</code></td>
+  <td>Magnitude of right nipple displacement from prone to supine (mm), relative to sternum</td>
+</tr>
+
+<tr class="section-header">
+  <td colspan="4"><strong>NIPPLE DISPLACEMENT (Vector Components)</strong></td>
+</tr>
+<tr>
+  <td>NIPPLE DISPLACEMENT</td>
+  <td>Left nipple displacement vector vx</td>
+  <td><code>nipple_disp_rel_sternum[0][0]</code></td>
+  <td>X-component of left nipple displacement vector (mm)</td>
+</tr>
+<tr>
+  <td>NIPPLE DISPLACEMENT</td>
+  <td>Left nipple displacement vector vy</td>
+  <td><code>nipple_disp_rel_sternum[0][1]</code></td>
+  <td>Y-component of left nipple displacement vector (mm)</td>
+</tr>
+<tr>
+  <td>NIPPLE DISPLACEMENT</td>
+  <td>Left nipple displacement vector vz</td>
+  <td><code>nipple_disp_rel_sternum[0][2]</code></td>
+  <td>Z-component of left nipple displacement vector (mm)</td>
+</tr>
+<tr>
+  <td>NIPPLE DISPLACEMENT</td>
+  <td>Right nipple displacement vector vx</td>
+  <td><code>nipple_disp_rel_sternum[1][0]</code></td>
+  <td>X-component of right nipple displacement vector (mm)</td>
+</tr>
+<tr>
+  <td>NIPPLE DISPLACEMENT</td>
+  <td>Right nipple displacement vector vy</td>
+  <td><code>nipple_disp_rel_sternum[1][1]</code></td>
+  <td>Y-component of right nipple displacement vector (mm)</td>
+</tr>
+<tr>
+  <td>NIPPLE DISPLACEMENT</td>
+  <td>Right nipple displacement vector vz</td>
+  <td><code>nipple_disp_rel_sternum[1][2]</code></td>
+  <td>Z-component of right nipple displacement vector (mm)</td>
+</tr>
+
+<tr class="section-header">
+  <td colspan="4"><strong>LANDMARK DISPLACEMENT (Relative to Sternum)</strong></td>
+</tr>
+<tr>
+  <td>LANDMARK DISPLACEMENT</td>
+  <td>Landmark displacement [mm]</td>
+  <td><code>lm_disp_mag_rel_sternum[i]</code></td>
+  <td>Magnitude of landmark displacement from prone to supine (mm), relative to sternum</td>
+</tr>
+<tr>
+  <td>LANDMARK DISPLACEMENT</td>
+  <td>Landmark displacement vector vx</td>
+  <td><code>lm_disp_rel_sternum[i][0]</code></td>
+  <td>X-component of landmark displacement vector relative to sternum (mm)</td>
+</tr>
+<tr>
+  <td>LANDMARK DISPLACEMENT</td>
+  <td>Landmark displacement vector vy</td>
+  <td><code>lm_disp_rel_sternum[i][1]</code></td>
+  <td>Y-component of landmark displacement vector relative to sternum (mm)</td>
+</tr>
+<tr>
+  <td>LANDMARK DISPLACEMENT</td>
+  <td>Landmark displacement vector vz</td>
+  <td><code>lm_disp_rel_sternum[i][2]</code></td>
+  <td>Z-component of landmark displacement vector relative to sternum (mm)</td>
+</tr>
+
+<tr class="section-header">
+  <td colspan="4"><strong>LANDMARK DISPLACEMENT (Relative to Nipple)</strong></td>
+</tr>
+<tr>
+  <td>LANDMARK DISPLACEMENT</td>
+  <td>Landmark displacement relative to nipple [mm]</td>
+  <td><code>lm_disp_mag_rel_nipple[i]</code></td>
+  <td>Magnitude of landmark displacement relative to its closest nipple (mm)</td>
+</tr>
+<tr>
+  <td>LANDMARK DISPLACEMENT</td>
+  <td>Landmark relative to nipple vector vx</td>
+  <td><code>lm_disp_rel_nipple[i][0]</code></td>
+  <td>X-component of landmark displacement relative to nipple (mm)</td>
+</tr>
+<tr>
+  <td>LANDMARK DISPLACEMENT</td>
+  <td>Landmark relative to nipple vector vy</td>
+  <td><code>lm_disp_rel_nipple[i][1]</code></td>
+  <td>Y-component of landmark displacement relative to nipple (mm)</td>
+</tr>
+<tr>
+  <td>LANDMARK DISPLACEMENT</td>
+  <td>Landmark relative to nipple vector vz</td>
+  <td><code>lm_disp_rel_nipple[i][2]</code></td>
+  <td>Z-component of landmark displacement relative to nipple (mm)</td>
+</tr>
+
+<tr class="section-header">
+  <td colspan="4"><strong>PRONE POSITION MEASUREMENTS (Clockface)</strong></td>
+</tr>
+<tr>
+  <td>PRONE MEASUREMENTS</td>
+  <td>landmark side (prone)</td>
+  <td><code>clockface_results[vl_id]["prone"]["average"][lm_name]["side"]</code></td>
+  <td>Which breast: "left" or "right"</td>
+</tr>
+<tr>
+  <td>PRONE MEASUREMENTS</td>
+  <td>Distance to nipple (prone) [mm]</td>
+  <td><code>clockface_results[vl_id]["prone"]["average"][lm_name]["dist_to_nipple"]</code></td>
+  <td>Euclidean distance from landmark to nipple (mm)</td>
+</tr>
+<tr>
+  <td>PRONE MEASUREMENTS</td>
+  <td>Time (prone)</td>
+  <td><code>clockface_results[vl_id]["prone"]["average"][lm_name]["time"]</code></td>
+  <td>Clock face position (e.g., "3:00", "9:00")</td>
+</tr>
+<tr>
+  <td>PRONE MEASUREMENTS</td>
+  <td>Quadrant (prone)</td>
+  <td><code>clockface_results[vl_id]["prone"]["average"][lm_name]["quadrant"]</code></td>
+  <td>Breast quadrant: UO (Upper Outer), UI (Upper Inner), LO (Lower Outer), LI (Lower Inner)</td>
+</tr>
+
+<tr class="section-header">
+  <td colspan="4"><strong>SUPINE POSITION MEASUREMENTS (Clockface)</strong></td>
+</tr>
+<tr>
+  <td>SUPINE MEASUREMENTS</td>
+  <td>landmark side (supine)</td>
+  <td><code>clockface_results[vl_id]["supine"]["average"][lm_name]["side"]</code></td>
+  <td>Which breast: "left" or "right"</td>
+</tr>
+<tr>
+  <td>SUPINE MEASUREMENTS</td>
+  <td>Distance to nipple (supine) [mm]</td>
+  <td><code>clockface_results[vl_id]["supine"]["average"][lm_name]["dist_to_nipple"]</code></td>
+  <td>Euclidean distance from landmark to nipple (mm)</td>
+</tr>
+<tr>
+  <td>SUPINE MEASUREMENTS</td>
+  <td>Time (supine)</td>
+  <td><code>clockface_results[vl_id]["supine"]["average"][lm_name]["time"]</code></td>
+  <td>Clock face position (e.g., "3:00", "9:00")</td>
+</tr>
+<tr>
+  <td>SUPINE MEASUREMENTS</td>
+  <td>Quadrant (supine)</td>
+  <td><code>clockface_results[vl_id]["supine"]["average"][lm_name]["quadrant"]</code></td>
+  <td>Breast quadrant: UO (Upper Outer), UI (Upper Inner), LO (Lower Outer), LI (Lower Inner)</td>
+</tr>
+
+<tr class="section-header">
+  <td colspan="4"><strong>DISTANCE TO ANATOMICAL STRUCTURES (PRONE)</strong></td>
+</tr>
+<tr>
+  <td>DISTANCE (PRONE)</td>
+  <td>Distance to rib cage (prone) [mm]</td>
+  <td><code>distance_results[vl_id]["prone"]["average"]["rib_distances"][lm_name]</code></td>
+  <td>Minimum distance from landmark to rib cage surface (mm)</td>
+</tr>
+<tr>
+  <td>DISTANCE (PRONE)</td>
+  <td>Distance to skin (prone) [mm]</td>
+  <td><code>distance_results[vl_id]["prone"]["average"]["skin_distances"][lm_name]</code></td>
+  <td>Minimum distance from landmark to skin surface (mm)</td>
+</tr>
+<tr>
+  <td>DISTANCE (PRONE)</td>
+  <td>Mask skin neighborhood avg (prone)</td>
+  <td><code>distance_results[vl_id]["prone"]["average"]["skin_neighborhood_avg"][lm_name]</code></td>
+  <td>Average value in skin mask neighborhood around landmark</td>
+</tr>
+<tr>
+  <td>DISTANCE (PRONE)</td>
+  <td>Mask rib neighborhood avg (prone)</td>
+  <td><code>distance_results[vl_id]["prone"]["average"]["rib_neighborhood_avg"][lm_name]</code></td>
+  <td>Average value in rib mask neighborhood around landmark</td>
+</tr>
+
+<tr class="section-header">
+  <td colspan="4"><strong>DISTANCE TO ANATOMICAL STRUCTURES (SUPINE)</strong></td>
+</tr>
+<tr>
+  <td>DISTANCE (SUPINE)</td>
+  <td>Distance to rib cage (supine) [mm]</td>
+  <td><code>distance_results[vl_id]["supine"]["average"]["rib_distances"][lm_name]</code></td>
+  <td>Minimum distance from landmark to rib cage surface (mm)</td>
+</tr>
+<tr>
+  <td>DISTANCE (SUPINE)</td>
+  <td>Distance to skin (supine) [mm]</td>
+  <td><code>distance_results[vl_id]["supine"]["average"]["skin_distances"][lm_name]</code></td>
+  <td>Minimum distance from landmark to skin surface (mm)</td>
+</tr>
+<tr>
+  <td>DISTANCE (SUPINE)</td>
+  <td>Mask skin neighborhood avg (supine)</td>
+  <td><code>distance_results[vl_id]["supine"]["average"]["skin_neighborhood_avg"][lm_name]</code></td>
+  <td>Average value in skin mask neighborhood around landmark</td>
+</tr>
+<tr>
+  <td>DISTANCE (SUPINE)</td>
+  <td>Mask rib neighborhood avg (supine)</td>
+  <td><code>distance_results[vl_id]["supine"]["average"]["rib_neighborhood_avg"][lm_name]</code></td>
+  <td>Average value in rib mask neighborhood around landmark</td>
+</tr>
+</tbody>
+</table>
+
+<h2>Key Notes</h2>
+<ul>
+<li><strong>Coordinate System:</strong> RAI (Right-Anterior-Inferior). X = Right(+) to Left(-), Y = Anterior(+) to Posterior(-), Z = Inferior(+) to Superior(-)</li>
+<li><strong>Reference Point:</strong> Sternum superior (jugular notch) is used to remove global chest translation</li>
+<li><strong>Transformations:</strong> T_total = T_icp_inv @ T_optimal (combines initial alignment and ICP refinement)</li>
+<li><strong>All measurements in millimeters (mm)</strong></li>
+</ul>
+
+</body>
+</html>

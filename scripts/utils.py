@@ -925,12 +925,12 @@ def align_prone_to_supine(
     if "prone" not in subject.scans or "supine" not in subject.scans:
         raise ValueError(f"Subject {subject.subject_id} is missing prone or supine scan data.")
 
-    prone_scan = subject.scans["prone"].scan_object
-    supine_scan = subject.scans["supine"].scan_object
+    # prone_scan = subject.scans["prone"].scan_object
+    # supine_scan = subject.scans["supine"].scan_object
 
     # --- 2. Convert Scans to Pyvista Image Grids ---
-    prone_image_grid = breast_metadata.SCANToPyvistaImageGrid(prone_scan, orientation_flag)
-    supine_image_grid = breast_metadata.SCANToPyvistaImageGrid(supine_scan, orientation_flag)
+    # prone_image_grid = breast_metadata.SCANToPyvistaImageGrid(prone_scan, orientation_flag)
+    # supine_image_grid = breast_metadata.SCANToPyvistaImageGrid(supine_scan, orientation_flag)
 
     # --- 3. Load Anatomical Landmarks from Subject ---
     anat_prone = subject.scans["prone"].anatomical_landmarks
@@ -1229,7 +1229,7 @@ def align_prone_to_supine(
     title_nipple = "Landmark Displacement Relative to Nipples"
     plot_vector_three_views(X_left, V_left, X_right, V_right, title_nipple)
 
-
+    ''''
     # ==========================================================
     # %% RESAMPLE IMAGE (Prone -> Supine)
     # ==========================================================
@@ -1359,7 +1359,7 @@ def align_prone_to_supine(
             orientation='coronal'
         )
 
-
+    '''
 
 
     # ==========================================================
@@ -1372,6 +1372,8 @@ def align_prone_to_supine(
         "ribcage_error_mean": np.mean(rib_error_mag),
         "ribcage_error_std": np.std(rib_error_mag),
         "ribcage_inlier_RMSE": icp_result['inlier_rmse'],
+        "sternum_prone_transformed": prone_sternum_aligned_final,
+        "sternum_supine": sternum_supine,
         "nipple_prone_transformed": nipple_prone_transformed,
         "nipple_supine": nipple_supine,
         "nipple_displacement_vectors": nipple_disp_rel_sternum,
@@ -1687,12 +1689,14 @@ def save_results_to_excel(
             subject = all_subjects[vl_id]
             align_res = alignment_results_all.get(vl_id)  # Safe get
 
-            # Get subject-level alignment data (nipples and ribcage)
+            # Get subject-level alignment data (nipples, sternum, and ribcage)
             if align_res:
                 nipple_disp_mag = align_res.get("nipple_displacement_magnitudes", [None, None])
                 nipple_disp_vec = align_res.get("nipple_displacement_vectors", [[None] * 3, [None] * 3])
                 nipple_prone_transformed = align_res.get("nipple_prone_transformed", [[None] * 3, [None] * 3])
                 nipple_supine = align_res.get("nipple_supine", [[None] * 3, [None] * 3])
+                sternum_prone_transformed = align_res.get("sternum_prone_transformed", [[None] * 3, [None] * 3])
+                sternum_supine = align_res.get("sternum_supine", [[None] * 3, [None] * 3])
                 ribcage_error_mean = align_res.get("ribcage_error_mean", None)
                 ribcage_error_std = align_res.get("ribcage_error_std", None)
                 ribcage_inlier_RMSE = align_res.get("ribcage_inlier_RMSE", None)
@@ -1702,6 +1706,8 @@ def save_results_to_excel(
                 nipple_disp_vec = [[None] * 3, [None] * 3]
                 nipple_prone_transformed = [[None] * 3, [None] * 3]
                 nipple_supine = [[None] * 3, [None] * 3]
+                sternum_prone_transformed = [[None] * 3, [None] * 3]
+                sternum_supine = [[None] * 3, [None] * 3]
                 ribcage_error_mean = None
                 ribcage_error_std = None
                 ribcage_inlier_RMSE = None
@@ -1768,6 +1774,13 @@ def save_results_to_excel(
                     "ribcage error mean": ribcage_error_mean,
                     "ribcage error std": ribcage_error_std,
                     "ribcage inlier RMSE": ribcage_inlier_RMSE,
+
+                    "sternum superior prone transformed x": sternum_prone_transformed[0][0],
+                    "sternum superior prone transformed y": sternum_prone_transformed[0][1],
+                    "sternum superior prone transformed z": sternum_prone_transformed[0][2],
+                    "sternum superior supine x": sternum_supine[0][0],
+                    "sternum superior supine y": sternum_supine[0][1],
+                    "sternum superior supine z": sternum_supine[0][2],
 
                     "left nipple prone transformed x": nipple_prone_transformed[0][0],
                     "left nipple prone transformed y": nipple_prone_transformed[0][1],
