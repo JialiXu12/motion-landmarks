@@ -14,7 +14,7 @@ from matplotlib.patches import Circle, Arc
 
 
 OUTPUT_DIR = Path("../output")
-EXCEL_FILE_PATH = OUTPUT_DIR / "landmark_results_v2_2025_12_01.xlsx"
+EXCEL_FILE_PATH = OUTPUT_DIR / "landmark_results_v4_2026_01_12.xlsx"
 
 
 def read_data(excel_path):
@@ -268,8 +268,24 @@ def perform_repeated_measures_analysis(df_input, subject_id_col, dv_cols):
             subject=subject_id_col,
             detailed=True
         )
-        print("\n--- PARAMETRIC: Repeated Measures ANOVA Results ---")
-        print(aov_rm)
+
+        print("\n" + "=" * 80)
+        print("REPEATED MEASURES ANOVA RESULTS")
+        print("=" * 80)
+
+        # Create formatted table for RM-ANOVA results
+        rm_anova_summary = pd.DataFrame({
+            'Source': ['Measurement Type'],
+            'F-statistic': [f"{aov_rm['F'].iloc[0]:.3f}"],
+            'P-value': [f"{aov_rm['p-unc'].iloc[0]:.4e}"],
+            'Sig.': ['***' if aov_rm['p-unc'].iloc[0] < 0.001 else
+                     '**' if aov_rm['p-unc'].iloc[0] < 0.01 else
+                     '*' if aov_rm['p-unc'].iloc[0] < 0.05 else 'ns'],
+        })
+        rm_anova_summary.set_index('Source', inplace=True)
+        print(rm_anova_summary)
+        print("\nSignificance levels: *** p<0.001, ** p<0.01, * p<0.05, ns = not significant")
+        print("η² = partial eta squared (effect size)")
 
         # Post-hoc Analysis if RM-ANOVA is significant
         ALPHA = 0.05
@@ -283,8 +299,46 @@ def perform_repeated_measures_analysis(df_input, subject_id_col, dv_cols):
                 subject=subject_id_col,
                 padjust='bonf'
             )
-            print("--- Pairwise Comparisons (Bonferroni) ---")
-            print(post_hoc[['A', 'B', 'T', 'dof', 'p-unc', 'p-corr', 'hedges']])
+
+            group_means = df_long.groupby('Measurement_Type')['Difference_Magnitude'].mean()
+
+            # Map the means to the post_hoc dataframe
+            post_hoc['mean(A)'] = post_hoc['A'].map(group_means)
+            post_hoc['mean(B)'] = post_hoc['B'].map(group_means)
+
+            # Format post-hoc results - include mean difference
+            post_hoc_formatted = post_hoc[['A', 'B', 'mean(A)', 'mean(B)', 'T', 'dof', 'p-unc', 'p-corr', 'hedges']].copy()
+
+            # Calculate mean difference (A - B)
+            post_hoc_formatted['Mean Diff'] = post_hoc_formatted['mean(A)'] - post_hoc_formatted['mean(B)']
+
+            # Reorder and rename columns
+            post_hoc_formatted = post_hoc_formatted[['A', 'B', 'mean(A)', 'mean(B)', 'Mean Diff', 'T', 'dof', 'p-unc', 'p-corr', 'hedges']]
+            post_hoc_formatted.columns = ['Comparison A', 'Comparison B', 'Mean A [mm]', 'Mean B [mm]',
+                                          'Mean Diff [mm]', 't-statistic', 'df',
+                                          'P-value (uncorrected)', 'P-value (Bonferroni)', "Hedges' g"]
+
+            # Add significance markers
+            post_hoc_formatted['Sig.'] = post_hoc_formatted['P-value (Bonferroni)'].apply(
+                lambda p: '***' if p < 0.001 else '**' if p < 0.01 else '*' if p < 0.05 else 'ns'
+            )
+
+            # Clean up metric names
+            post_hoc_formatted['Comparison A'] = post_hoc_formatted['Comparison A'].str.replace('diff_', '').str.replace('_', ' ')
+            post_hoc_formatted['Comparison B'] = post_hoc_formatted['Comparison B'].str.replace('diff_', '').str.replace('_', ' ')
+
+            # Format numeric columns
+            post_hoc_formatted['Mean A [mm]'] = post_hoc_formatted['Mean A [mm]'].apply(lambda x: f"{x:.2f}")
+            post_hoc_formatted['Mean B [mm]'] = post_hoc_formatted['Mean B [mm]'].apply(lambda x: f"{x:.2f}")
+            post_hoc_formatted['Mean Diff [mm]'] = post_hoc_formatted['Mean Diff [mm]'].apply(lambda x: f"{x:.2f}")
+            post_hoc_formatted['t-statistic'] = post_hoc_formatted['t-statistic'].apply(lambda x: f"{x:.3f}")
+            post_hoc_formatted['P-value (uncorrected)'] = post_hoc_formatted['P-value (uncorrected)'].apply(lambda x: f"{x:.4e}")
+            post_hoc_formatted['P-value (Bonferroni)'] = post_hoc_formatted['P-value (Bonferroni)'].apply(lambda x: f"{x:.4e}")
+            post_hoc_formatted["Hedges' g"] = post_hoc_formatted["Hedges' g"].apply(lambda x: f"{x:.3f}")
+
+            print(post_hoc_formatted.to_string(index=False))
+            print("\nMean Diff = Mean A - Mean B")
+            print("Significance based on Bonferroni-corrected p-values")
         else:
             print("\nRM-ANOVA is not significant. No post-hoc tests needed.")
 
@@ -306,7 +360,7 @@ def perform_repeated_measures_analysis(df_input, subject_id_col, dv_cols):
 
         print(f"  - Result: Chi-squared={friedman_stat:.4f}, p={p_friedman:.4f}")
 
-        if p_friedman < ALPHA:
+        if p_friedman < 0.05:
             print("  - Significant difference found. The shifts are different across the 3 metrics.")
             print("  - Post-hoc requires Wilcoxon Signed-Rank Test with correction.")
         else:
@@ -844,20 +898,20 @@ if __name__ == "__main__":
 
     #%% landmarks characteristics
     landmark_type_raw = df_raw['Landmark type']
-    fibroadenoma_count = len(landmark_type_raw[landmark_type_raw == 'fibroadenoma'])
-    print(f"Count of fibroadenoma: {fibroadenoma_count}")
+    # fibroadenoma_count = len(landmark_type_raw[landmark_type_raw == 'fibroadenoma'])
+    # print(f"Count of fibroadenoma: {fibroadenoma_count}")
 
     total_num_of_landmark = df_ave.shape[0]
     total_num_of_landmark_raw = df_raw.shape[0]/4
     print("Total number of landmarks is: ", total_num_of_landmark)
-    print("Total number of landmarks before post processing is: ", total_num_of_landmark_raw)
+    # print("Total number of landmarks before post processing is: ", total_num_of_landmark_raw)
 
     # how many landmarks per volunteer in raw and filtered data
     landmark_counts = df_ave.groupby('VL_ID').size()
     print("Number of landmarks per volunteer:\n", landmark_counts)
     print("Total number of volunteers is: ", landmark_counts.shape[0])
     landmark_counts_raw = df_raw.groupby('VL_ID').size()
-    print("Total number of volunteers before post processing is: ", landmark_counts_raw.shape[0])
+    # print("Total number of volunteers before post processing is: ", landmark_counts_raw.shape[0])
 
     # Count the number of rows for each unique landmark type
     type_counts = df_ave['Landmark type'].value_counts()
@@ -952,6 +1006,133 @@ if __name__ == "__main__":
 
     print(combined_table)
 
+    # ===== QUADRANT CHANGES BY LANDMARK TYPE =====
+    print("\n" + "=" * 50)
+    print("QUADRANT CHANGES BY LANDMARK TYPE")
+    print("=" * 50)
+
+    # Create a column indicating if quadrant changed
+    df_ave['quadrant_changed'] = df_ave['Quadrant (prone)'] != df_ave['Quadrant (supine)']
+
+    # Group by landmark type and calculate changes
+    quadrant_change_by_type = df_ave.groupby('Landmark type').agg({
+        'quadrant_changed': ['sum', 'count']
+    })
+
+    # Flatten column names
+    quadrant_change_by_type.columns = ['Changed', 'Total']
+    quadrant_change_by_type['Unchanged'] = quadrant_change_by_type['Total'] - quadrant_change_by_type['Changed']
+    quadrant_change_by_type['% Changed'] = (quadrant_change_by_type['Changed'] / quadrant_change_by_type['Total'] * 100).round(1)
+
+    # Reorder columns for better readability
+    quadrant_change_by_type = quadrant_change_by_type[['Total', 'Changed', 'Unchanged', '% Changed']]
+
+    # Add totals row
+    total_landmarks = quadrant_change_by_type['Total'].sum()
+    total_changed = quadrant_change_by_type['Changed'].sum()
+    total_unchanged = quadrant_change_by_type['Unchanged'].sum()
+    total_pct_changed = (total_changed / total_landmarks * 100).round(1)
+
+    quadrant_change_by_type.loc['Total'] = [total_landmarks, total_changed, total_unchanged, total_pct_changed]
+
+    print("\nLandmark Quadrant Changes Summary by Type:")
+    print(quadrant_change_by_type)
+
+    # ===== DETAILED TRANSITIONS FOR CHANGED LANDMARKS =====
+    print("\n" + "=" * 50)
+    print("SPECIFIC QUADRANT TRANSITIONS (ONLY CHANGED LANDMARKS)")
+    print("=" * 50)
+
+    # Overall transitions for all changed landmarks
+    df_changed = df_ave[df_ave['quadrant_changed'] == True].copy()
+
+    if len(df_changed) > 0:
+        print(f"\n*** OVERALL TRANSITIONS ({len(df_changed)} landmarks changed quadrants) ***")
+        overall_transitions = pd.crosstab(
+            df_changed['Quadrant (prone)'],
+            df_changed['Quadrant (supine)'],
+            margins=False
+        )
+        overall_transitions = overall_transitions.reindex(index=quad_order, columns=quad_order, fill_value=0)
+
+        # Show table
+        print("\nTransition Matrix (FROM prone rows → TO supine columns):")
+        print(overall_transitions)
+
+        # Create detailed list of transitions with counts
+        print("\nDetailed Transition Counts:")
+        transition_list = []
+        for from_quad in quad_order:
+            for to_quad in quad_order:
+                if from_quad != to_quad:  # Only show actual changes
+                    count = overall_transitions.loc[from_quad, to_quad] if from_quad in overall_transitions.index and to_quad in overall_transitions.columns else 0
+                    if int(count) > 0:
+                        transition_list.append({
+                            'From': from_quad,
+                            'To': to_quad,
+                            'Count': int(count),
+                            'Percentage': f"{(count/len(df_changed)*100):.1f}%"
+                        })
+
+        if transition_list:
+            transition_df = pd.DataFrame(transition_list)
+            transition_df = transition_df.sort_values('Count', ascending=False)
+            print(transition_df.to_string(index=False))
+        else:
+            print("No quadrant changes detected.")
+
+    # ===== BY LANDMARK TYPE =====
+    print("\n" + "=" * 50)
+    print("QUADRANT TRANSITIONS BY LANDMARK TYPE")
+    print("=" * 50)
+
+    for landmark_type in sorted(df_ave['Landmark type'].unique()):
+        df_type = df_ave[df_ave['Landmark type'] == landmark_type]
+        df_type_changed = df_type[df_type['quadrant_changed'] == True]
+
+        changed_count = len(df_type_changed)
+        total_count = len(df_type)
+        pct_changed = round(changed_count / total_count * 100, 1) if total_count > 0 else 0
+
+        print(f"\n{'='*50}")
+        print(f"{landmark_type}: {changed_count}/{total_count} ({pct_changed}%) changed quadrants")
+        print('='*50)
+
+        if changed_count > 0:
+            # Create crosstab for changed landmarks only
+            type_transitions = pd.crosstab(
+                df_type_changed['Quadrant (prone)'],
+                df_type_changed['Quadrant (supine)'],
+                margins=False
+            )
+            type_transitions = type_transitions.reindex(index=quad_order, columns=quad_order, fill_value=0)
+
+            print("\nTransition Matrix (FROM prone rows → TO supine columns):")
+            print(type_transitions)
+
+            # Detailed list for this type
+            print("\nSpecific Transitions:")
+            type_transition_list = []
+            for from_quad in quad_order:
+                for to_quad in quad_order:
+                    if from_quad != to_quad:
+                        count = type_transitions.loc[from_quad, to_quad] if from_quad in type_transitions.index and to_quad in type_transitions.columns else 0
+                        if int(count) > 0:
+                            type_transition_list.append({
+                                'From': from_quad,
+                                'To': to_quad,
+                                'Count': int(count),
+                                '% of Changed': f"{(count/changed_count*100):.1f}%",
+                                '% of Total': f"{(count/total_count*100):.1f}%"
+                            })
+
+            if type_transition_list:
+                type_transition_df = pd.DataFrame(type_transition_list)
+                type_transition_df = type_transition_df.sort_values('Count', ascending=False)
+                print(type_transition_df.to_string(index=False))
+        else:
+            print("  → No landmarks of this type changed quadrants")
+
 
     # ----- VISUALIZATION ---
     sns.set_style("whitegrid")
@@ -1032,95 +1213,123 @@ if __name__ == "__main__":
     plt.show()
 
 
-    #%% distance characteristics
+    #%% ===== DISTANCE CHARACTERISTICS =====
     distance_metrics_map = [
         ("DTS (Skin)", "Distance to skin"),
         ("DTN (Nipple)", "Distance to nipple"),
         ("DTR (Rib Cage)", "Distance to rib cage")
     ]
-    distance_rows = []
 
-    for short_name, excel_prefix in distance_metrics_map:
-        distance_row = {"Metric": short_name}
-
-        for position in ['prone', 'supine']:
-            col_name = f"{excel_prefix} ({position}) [mm]"
-            prefix = position.title()  # "Prone" or "Supine"
-
-            series = df_ave[col_name].dropna()
-
-            # Calculate Stats
-            mean_val = series.mean()
-            std_val = series.std()
-            median_val = series.median()
-
-            # Add to row dictionary with specific column names
-            distance_row[f"{prefix} Mean ± SD"] = f"{mean_val:.2f} ± {std_val:.2f}"
-            distance_row[f"{prefix} Median"] = f"{median_val:.2f}"
-
-        distance_rows.append(distance_row)
-
-    # Create DataFrame
-    distance_table = pd.DataFrame(distance_rows)
-
-    # Set Metric as index for cleaner display
-    distance_table.set_index("Metric", inplace=True)
-
-    #%% --- DIFFERENCE IN DISTANCE TO SKIN, RIB CAGE, AND NIPPLES ---
-    print("\n" + "=" * 80)
-    print("STATISTICAL SUMMARY (Side-by-Side Comparison)")
-    print("=" * 80)
-
-    # Set pandas display options to ensure columns align nicely
+    # Set pandas display options for better formatting
     pd.set_option('display.max_columns', None)
     pd.set_option('display.width', 1000)
     pd.set_option('display.colheader_justify', 'center')
 
-    print(distance_table)
-    print("\n" + "=" * 80)
+    # ===== TABLE 1: PRONE vs SUPINE COMPARISON =====
+    distance_rows = []
 
-    # Calculate change in distances (Supine - Prone)
-    distance_change_rows = []
-    dv_differences = []
     for short_name, excel_prefix in distance_metrics_map:
         prone_col = f"{excel_prefix} (prone) [mm]"
         supine_col = f"{excel_prefix} (supine) [mm]"
 
-        # Calculate difference
+        # Get data
+        prone_data = df_ave[prone_col].dropna()
+        supine_data = df_ave[supine_col].dropna()
+
+        # Prone statistics
+        prone_mean = prone_data.mean()
+        prone_std = prone_data.std()
+        prone_median = prone_data.median()
+
+        # Supine statistics
+        supine_mean = supine_data.mean()
+        supine_std = supine_data.std()
+        supine_median = supine_data.median()
+
+        # Statistical test (paired t-test)
+        t_stat, p_value = stats.ttest_rel(prone_data, supine_data)
+
+        # Significance marker
+        if p_value < 0.001:
+            sig_marker = "***"
+        elif p_value < 0.01:
+            sig_marker = "**"
+        elif p_value < 0.05:
+            sig_marker = "*"
+        else:
+            sig_marker = "ns"
+
+        distance_row = {
+            "Metric": short_name,
+            "Prone Mean ± SD": f"{prone_mean:.2f} ± {prone_std:.2f}",
+            "Prone Median": f"{prone_median:.2f}",
+            "Supine Mean ± SD": f"{supine_mean:.2f} ± {supine_std:.2f}",
+            "Supine Median": f"{supine_median:.2f}",
+            "P-value": f"{p_value:.4e}",
+            "Sig.": sig_marker
+        }
+        distance_rows.append(distance_row)
+
+    # Create DataFrame
+    distance_table = pd.DataFrame(distance_rows)
+    distance_table.set_index("Metric", inplace=True)
+
+    print("\n" + "=" * 80)
+    print("STATISTICAL SUMMARY (Prone vs Supine Comparison)")
+    print("=" * 80)
+    print(distance_table)
+    print("\nSignificance levels: *** p<0.001, ** p<0.01, * p<0.05, ns = not significant")
+    print("P-values from paired t-test")
+    print("=" * 80)
+
+    # ===== DISTANCE CHANGE SUMMARY (Supine - Prone) =====
+    distance_change_rows = []
+    dv_differences = []
+
+    for short_name, excel_prefix in distance_metrics_map:
+        prone_col = f"{excel_prefix} (prone) [mm]"
+        supine_col = f"{excel_prefix} (supine) [mm]"
+
+        # Calculate difference (Supine - Prone)
         diff_col_name = f'diff_{short_name.replace(" ", "_").replace("(", "").replace(")", "")}'
-        df_ave[diff_col_name] = df_ave[supine_col] - df_ave[prone_col]  # Use signed difference
+        df_ave[diff_col_name] = df_ave[supine_col] - df_ave[prone_col]
         dv_differences.append(diff_col_name)
 
-        differences = df_ave[diff_col_name]
-        # df_ave['diff_magnitude'] = differences
+        differences = df_ave[diff_col_name].dropna()
 
+        # Difference statistics
         mean_diff = differences.mean()
+        std_diff = differences.std()
+        median_diff = differences.median()
         min_diff = differences.min()
         max_diff = differences.max()
         range_diff = max_diff - min_diff
 
-        t_stat, p_val_t = stats.ttest_rel(df_ave[prone_col],df_ave[supine_col])
-        # Significance Star
-        sig_marker = "*" if p_val_t < 0.05 else "ns"
-
         distance_change_row = {
             "Metric": short_name,
-            "Range [mm]": f"{range_diff:.2f}",
-            "Minimum [mm]": f"{min_diff:.2f}",
-            "Maximum [mm]": f"{max_diff:.2f}",
             "Mean [mm]": f"{mean_diff:.2f}",
-            "P-value (T-test)": f"{p_val_t:.4e}",
-            "Sig.": sig_marker
+            "SD [mm]": f"{std_diff:.2f}",
+            "Median [mm]": f"{median_diff:.2f}",
+            "Min [mm]": f"{min_diff:.2f}",
+            "Max [mm]": f"{max_diff:.2f}",
+            "Range [mm]": f"{range_diff:.2f}",
         }
         distance_change_rows.append(distance_change_row)
+
     distance_change_table = pd.DataFrame(distance_change_rows)
     distance_change_table.set_index("Metric", inplace=True)
+
     print("\n" + "=" * 80)
     print("DISTANCE CHANGE SUMMARY (Supine - Prone)")
     print("=" * 80)
     print(distance_change_table)
+    print("\nPositive values indicate further distance in supine position")
+    print("=" * 80)
 
 
+    #%% repeated anova for difference in distance to skin, rib cage, and nipples
+    SUBJECT_ID = 'VL_ID'
+    perform_repeated_measures_analysis(df_ave, SUBJECT_ID, dv_differences)
 
 
     #%% GROUP ANALYSIS BASED ON LANDMARK CHARACTERISTICS
@@ -1150,9 +1359,6 @@ if __name__ == "__main__":
                 perform_group_analysis(df_diff, dv_var_current, group_col)
 
 
-    #%% repeated anova for difference in distance to skin, rib cage, and nipples
-    SUBJECT_ID = 'VL_ID'
-    perform_repeated_measures_analysis(df_ave, SUBJECT_ID, dv_differences)
 
     #%% How Age and BMI influence the shift in distances
     # Spearman Correlation (Continuous)
