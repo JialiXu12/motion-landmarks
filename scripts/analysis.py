@@ -760,7 +760,7 @@ def plot_sagittal_dual_axes(df_ave):
     - Right Breast (Right side): Ant-Post (mm), Blue
     - Left Breast (Left side): Post-Ant (mm), Green
     """
-    print("\n--- Plotting Dual Sagittal Axes for VL 81 ---")
+    print("\n--- Plotting Dual Sagittal Axes ---")
 
     # 1. Use All Data
     df_subset = df_ave.copy()
