@@ -12,6 +12,7 @@ from statsmodels.stats.multicomp import MultiComparison
 from pingouin import welch_anova, pairwise_gameshowell, rm_anova, pairwise_ttests
 from matplotlib.patches import Circle, Arc
 import matplotlib.patches as patches
+from plot_nipple_relative_vectors import plot_nipple_relative_vectors
 
 
 OUTPUT_DIR = Path("../output")
@@ -989,6 +990,126 @@ def analyze_3d_stability(df):
 
 # analyze_3d_stability(df_analysis)
 
+def plot_nipple_relative_from_sternum_data(
+    base_point, end_point, 
+    lm_disp_rel_sternum, 
+    nipple_disp_left_vec, nipple_disp_right_vec,
+    nipple_pos_prone_l, nipple_pos_prone_r,
+    is_left, dts_values=None, 
+    title="Nipple Relative Landmarks",
+    save_path=None, use_dts_cmap=True
+):
+    """
+    Derives Nipple-relative plotting data from Sternum-relative positions and displacements.
+    
+    Args:
+        base_point: Prone position relative to sternum (X, Y, Z)
+        end_point: Supine position relative to sternum (X, Y, Z)
+        lm_disp_rel_sternum: Displacement vector relative to sternum (end_point - base_point)
+        nipple_disp_left_vec: Nipple displacement relative to sternum (Left)
+        nipple_disp_right_vec: Nipple displacement relative to sternum (Right)
+        nipple_pos_prone_l: Prone position of left nipple relative to sternum
+        nipple_pos_prone_r: Prone position of right nipple relative to sternum
+        is_left: Boolean array indicating if landmark belongs to left breast
+        dts_values: Depth-to-skin values for coloring
+        title: Plot title
+        save_path: Path to save the plots
+        use_dts_cmap: Whether to use the DTS colormap
+    """
+    # 1. Origins (landmark position relative to prone nipple)
+    # This transforms the sternum-centered prone coordinates to be nipple-centered
+    X_left = base_point[is_left.values] - nipple_pos_prone_l
+    X_right = base_point[~is_left.values] - nipple_pos_prone_r
+    
+    # 2. Vectors (landmark motion relative to nipple)
+    # This subtracts the whole-breast movement (nipple motion) to show intrinsic deformation
+    V_left = lm_disp_rel_sternum[is_left.values] - nipple_disp_left_vec
+    V_right = lm_disp_rel_sternum[~is_left.values] - nipple_disp_right_vec
+    
+    # 3. Extract DTS values per side if provided
+    d_left = dts_values[is_left.values] if dts_values is not None else None
+    d_right = dts_values[~is_left.values] if dts_values is not None else None
+    
+    # 4. Call the specialized plotting function
+    plot_nipple_relative_vectors(
+        base_point_left=X_left,
+        vector_left=V_left,
+        base_point_right=X_right,
+        vector_right=V_right,
+        dts_left=d_left,
+        dts_right=d_right,
+        title=title,
+        save_path=save_path,
+        use_dts_cmap=use_dts_cmap
+    )
+
+def plot_nipple_relative_motion_analysis(df_ave, vl_id=81, save_dir=None, use_dts_cmap=True):
+    """
+    Extracts landmark and nipple data for a specific subject from the dataframe,
+    then calls plot_nipple_relative_from_sternum_data.
+    """
+    # Filter for subject
+    df_sub = df_ave[df_ave['VL_ID'] == vl_id].copy()
+    if df_sub.empty:
+        print(f"Warning: No data found for subject {vl_id}")
+        return
+        
+    # Identify nipple markers
+    nipple_df = df_sub[df_sub['Landmark type'] == 'nipple']
+    l_nipple = nipple_df[nipple_df['landmark side (prone)'] == 'LB']
+    r_nipple = nipple_df[nipple_df['landmark side (prone)'] == 'RB']
+    
+    if l_nipple.empty or r_nipple.empty:
+        print(f"Warning: Nipple markers not found for subject {vl_id}. Skipping nipple-relative plot.")
+        return
+
+    # Columns
+    prone_cols = ['landmark ave prone transformed x', 'landmark ave prone transformed y', 'landmark ave prone transformed z']
+    supine_cols = ['landmark ave supine x', 'landmark ave supine y', 'landmark ave supine z']
+    
+    # Prone and supine positions relative to sternum
+    n_p_l = l_nipple[prone_cols].values[0]
+    n_p_r = r_nipple[prone_cols].values[0]
+    n_s_l = l_nipple[supine_cols].values[0]
+    n_s_r = r_nipple[supine_cols].values[0]
+    
+    # Nipple displacements
+    nipple_disp_left_vec = n_s_l - n_p_l
+    nipple_disp_right_vec = n_s_r - n_p_r
+    
+    # Non-nipple Landmarks
+    df_lm = df_sub[df_sub['Landmark type'] != 'nipple'].copy()
+    if df_lm.empty:
+        print(f"Warning: No non-nipple landmarks found for subject {vl_id}")
+        return
+        
+    base_point = df_lm[prone_cols].values
+    end_point = df_lm[supine_cols].values
+    lm_disp_rel_sternum = end_point - base_point
+    
+    # Metadata
+    is_left = df_lm['landmark side (prone)'] == 'LB'
+    dts_col = 'Distance to skin (prone) [mm]'
+    dts_values = df_lm[dts_col].values if dts_col in df_lm.columns else None
+    
+    # Sub-path for subject
+    save_path = str(Path(save_dir) / f"VL{vl_id}") if save_dir else None
+    
+    # Perform the call using the requested Sternum-relative inputs
+    plot_nipple_relative_from_sternum_data(
+        base_point=base_point,
+        end_point=end_point,
+        lm_disp_rel_sternum=lm_disp_rel_sternum,
+        nipple_disp_left_vec=nipple_disp_left_vec,
+        nipple_disp_right_vec=nipple_disp_right_vec,
+        nipple_pos_prone_l=n_p_l,
+        nipple_pos_prone_r=n_p_r,
+        is_left=is_left,
+        dts_values=dts_values,
+        title=f"Landmark Motion Relative to Nipple (VL {vl_id})",
+        save_path=save_path,
+        use_dts_cmap=use_dts_cmap
+    )
 
 if __name__ == "__main__":
     df_raw, df_ave, df_demo = read_data(EXCEL_FILE_PATH)
@@ -1553,6 +1674,24 @@ if __name__ == "__main__":
 
     # 2. Run the Vectors Relative to Sternum plotting function
     plot_vectors_rel_sternum(df_ave)
+
+    # 3. Run the Vectors Relative to Nipple plotting function (Intrinsic Deformation)
+    # This plots landmark motion after subtracting the movement of the respective nipple.
+    print("\n" + "=" * 50)
+    print("PLOTTING LANDMARK MOTION RELATIVE TO NIPPLE")
+    print("=" * 50)
+    
+    # Define save directory
+    nipple_output_dir = Path("..") / "output" / "nipple_relative"
+    
+    # We'll plot for a specific subject (e.g., VL 81) as requested in previous iterations
+    # but the function can be called for any subject index.
+    plot_nipple_relative_motion_analysis(
+        df_ave, 
+        vl_id=81, 
+        save_dir=nipple_output_dir, 
+        use_dts_cmap=True
+    )
 
 
 
