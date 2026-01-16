@@ -1189,7 +1189,7 @@ def align_prone_to_supine(
     # 4. Calculate Displacements Relative to Nipple
     # ----------------------------------------------------------
     # How much did the landmark move *compared* to how much the nipple moved?
-    # (Differential deformation)
+
     lm_disp_rel_nipple = lm_disp_rel_sternum - closest_nipple_disp_vec
     lm_disp_mag_rel_nipple = np.linalg.norm(lm_disp_rel_nipple, axis=1)
 
@@ -1205,7 +1205,7 @@ def align_prone_to_supine(
     # X: Initial position relative to the prone nipple (for quiver plot origin)
     X_left = lm_prone_left - left_nipple_prone_pos
     # V: Differential movement vector (Nipple vector - Landmark vector)
-    V_left = nipple_disp_left_vec - lm_disp_left
+    V_left = lm_disp_left - nipple_disp_left_vec
 
     # --- Right Breast ---
     lm_prone_right = landmark_prone_transformed[~is_left_breast]
@@ -1214,7 +1214,7 @@ def align_prone_to_supine(
     # X: Initial position relative to the prone nipple
     X_right = lm_prone_right - right_nipple_prone_pos
     # V: Differential movement vector
-    V_right = nipple_disp_right_vec - lm_disp_right
+    V_right = lm_disp_right - nipple_disp_right_vec
 
 
     # ==========================================================
