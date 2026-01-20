@@ -17,7 +17,7 @@ def plot_nipple_relative_vectors(
         vector_right: np.ndarray,
         dts_left: np.ndarray = None,
         dts_right: np.ndarray = None,
-        title: str = "Landmark Motion Relative to Nipple",
+        title: str = None,
         save_path: str = None,
         use_dts_cmap: bool = True
 ):
@@ -45,30 +45,31 @@ def plot_nipple_relative_vectors(
     PLANE_CONFIG = {
         'Coronal': {
             'axes': (0, 2),  # X (R/L) vs Z (I/S)
-            'xlabel': 'right-left (mm)',
-            'ylabel': 'inf-sup (mm)',
+            'xlabel': 'Right-Left (mm)',
+            'ylabel': 'Inf-Sup (mm)',
             'shape': 'Circle',
             'quadrants_right': ('UI', 'UO', 'LI', 'LO'),
             'quadrants_left': ('UO', 'UI', 'LO', 'LI')
         },
         'Sagittal': {
             'axes': (1, 2),  # Y (A/P) vs Z (I/S)
-            'xlabel': 'post-ant (mm)',
-            'ylabel': 'inf-sup (mm)',
+            'xlabel': 'Ant-Post (mm)',
+            'ylabel': 'Inf-Sup (mm)',
             'shape': 'SemiCircle',
             'quadrants_right': ('upper', '', 'lower', ''),
             'quadrants_left': ('upper', '', 'lower', '')
         },
         'Axial': {
             'axes': (0, 1),  # X (R/L) vs Y (A/P)
-            'xlabel': 'right-left (mm)',
-            'ylabel': 'post-ant (mm)',
+            'xlabel': 'Right-Left (mm)',
+            'ylabel': 'Ant-Post (mm)',
             'shape': 'SemiCircle',
             'quadrants_right': ('inner', 'outer', '', ''),
             'quadrants_left': ('outer', 'inner', '', '')
         }
     }
-    
+
+
     # Plot each plane
     for plane_name, config in PLANE_CONFIG.items():
         _plot_single_plane(
@@ -95,31 +96,31 @@ def _plot_single_plane(
         use_dts_cmap: bool
 ):
     """Helper function to plot a single anatomical plane."""
-    
+
     AXIS_X, AXIS_Y = config['axes']
     
     # Create figure with two subplots (Right and Left breast)
-    fig, (ax_right, ax_left) = plt.subplots(1, 2, figsize=(12, 6))
-    fig.suptitle(f"{plane_name} plane\n{title}", fontsize=14, fontweight='bold')
-    
-    # Set axis limits based on plane to match reference images
-    if plane_name == 'Coronal':
-        # Reference: -60 to 60 for both axes
-        lims_x = (-60, 60)
-        lims_y = (-60, 60)
-        radius = 60
-    elif plane_name == 'Sagittal':
-        # Reference: post-ant from 0 to 140, inf-sup from -60 to 60
-        lims_x = (0, 140)  # Posterior (0) to Anterior (140)
-        lims_y = (-60, 60)  # Inferior to Superior
-        radius = 60
-    else:  # Axial
-        # Reference: right-left from -60 to 60, post-ant from 0 to 140
-        lims_x = (-60, 60)  # Right to Left
-        lims_y = (0, 140)  # Posterior (0) to Anterior (140)
-        radius = 60
-    
-    
+    fig, (ax_right, ax_left) = plt.subplots(1, 2, figsize=(16, 8), constrained_layout=True)
+    fig.suptitle(f"{title} ({plane_name.lower()} view)", fontsize=14) #, fontweight='bold')
+
+    # Set axis limits based on plane
+    if plane_name == 'Sagittal':
+        # For sagittal: x-axis starts at 0 (anterior/nipple), 500 units wide
+        lims_x = (0, 500)  # Anterior (0) to Posterior (500)
+        lims_y = (-250, 250)  # Inf-Sup (500 units tall)
+        radius = 250
+    elif plane_name == 'Axial':
+        # For axial: y-axis starts at 0 (anterior/nipple), 500 units wide
+        lims_x = (-250, 250)  # Right-Left (500 units wide)
+        lims_y = (0, 500)  # Anterior (0) to Posterior (500)
+        radius = 250
+    else:
+        # For Coronal: use symmetric limits
+        lims_x = (-250, 250)
+        lims_y = (-250, 250)
+        radius = 250
+
+
     # Plot Right Breast
     _plot_breast_side(
         ax_right, plane_name, config,
@@ -127,7 +128,7 @@ def _plot_single_plane(
         'Right breast', 'right', lims_x, lims_y, radius,
         use_dts_cmap
     )
-    
+
     # Plot Left Breast
     _plot_breast_side(
         ax_left, plane_name, config,
@@ -135,9 +136,9 @@ def _plot_single_plane(
         'Left breast', 'left', lims_x, lims_y, radius,
         use_dts_cmap
     )
-    
-    plt.tight_layout()
-    
+
+    # plt.tight_layout()
+
     # Save if path provided
     if save_path:
         # Ensure parent directory exists
@@ -145,11 +146,11 @@ def _plot_single_plane(
         filename = f"{save_path}_{plane_name.lower()}.png"
         plt.savefig(filename, dpi=300, bbox_inches='tight')
         print(f"Saved: {filename}")
-    
+
     # Only show if not using Agg backend
     if plt.get_backend().lower() != 'agg':
         plt.show()
-    
+
     plt.close(fig)
 
 
@@ -166,30 +167,45 @@ def _plot_breast_side(
         use_dts_cmap: bool
 ):
     """Helper function to plot one breast side on a given axis."""
-    
+
     AXIS_X, AXIS_Y = config['axes']
-    
+
     # Set title and labels
     ax.set_title(side_title, fontsize=12)
-    ax.set_xlabel(config['xlabel'])
-    ax.set_ylabel(config['ylabel'])
-    
+    ax.set_xlabel(config['xlabel'], fontsize=12)
+    ax.set_ylabel(config['ylabel'], fontsize=12)
+
     # Set limits
     ax.set_xlim(lims_x)
     ax.set_ylim(lims_y)
-    
+
+    # Set ticks with 50mm intervals
+    if plane_name == 'Sagittal':
+        # For sagittal, x-axis starts at 0 and extends to 500
+        ax.set_xticks(np.arange(0, 501, 50))
+        ax.set_yticks(np.arange(-250, 251, 50))
+    elif plane_name == 'Axial':
+        # For axial, y-axis starts at 0 and extends to 500
+        ax.set_xticks(np.arange(-250, 251, 50))
+        ax.set_yticks(np.arange(0, 501, 50))
+    else:
+        # For Coronal, both axes symmetric
+        ax.set_xticks(np.arange(-250, 251, 50))
+        ax.set_yticks(np.arange(-250, 251, 50))
+
     ax.set_aspect('equal', adjustable='box')
-    ax.grid(True, linestyle='--', alpha=0.3)
-    
-    # Draw anatomical background shape
+    # Grid style (dashed, alpha=0.5)
+    ax.grid(True, linestyle='--', alpha=0.5)
+
+    # Draw anatomical shape
     _draw_anatomical_shape(ax, plane_name, config, radius, side)
-    
-    # Draw reference lines
+
+    # Draw reference lines through nipple origin
     _draw_reference_lines(ax, plane_name)
-    
-    # Plot nipple at origin
-    ax.plot(0, 0, 'ro', markersize=8, zorder=10, label='Nipple')
-    
+
+    # Plot nipple at origin (matching plot_vectors_rel_sternum origin marker)
+    ax.plot(0, 0, 'ko', markersize=5, zorder=10, label='Nipple (Origin)')
+
     # Plot vectors
     if len(base_points) > 0:
         # Determine colors
@@ -201,7 +217,7 @@ def _plot_breast_side(
             # Default color
             colors = 'darkblue'
             cmap = None
-        
+
         # Plot quiver
         if cmap:
             # Create scatter plot for color mapping
@@ -210,16 +226,16 @@ def _plot_breast_side(
                 base_points[:, AXIS_Y],
                 c=colors,
                 cmap=cmap,
-                s=30,
+                s=20,
                 zorder=5,
                 vmin=0,
                 vmax=40
             )
-            
+
             # Add colorbar
             cbar = plt.colorbar(scatter, ax=ax)
             cbar.set_label('DTS (mm)', rotation=270, labelpad=15)
-            
+
             # Plot arrows with same colors
             for i in range(len(base_points)):
                 ax.arrow(
@@ -240,11 +256,11 @@ def _plot_breast_side(
                 base_points[:, AXIS_X],
                 base_points[:, AXIS_Y],
                 c=colors,
-                s=30,
+                s=20,
                 zorder=5,
                 alpha=0.7
             )
-            
+
             # Plot quiver
             ax.quiver(
                 base_points[:, AXIS_X],
@@ -261,19 +277,19 @@ def _plot_breast_side(
                 alpha=0.7,
                 zorder=4
             )
-    
+
     # Add quadrant labels
-    _add_quadrant_labels(ax, config, side, radius)
+    _add_quadrant_labels(ax, config, side, radius, plane_name)
 
 
 def _draw_anatomical_shape(ax, plane_name: str, config: dict, radius: float, side: str):
     """Draw the anatomical background shape (circle or semicircle)."""
-    
+
     if config['shape'] == 'Circle':
         # Full circle for coronal plane
         circle = Circle((0, 0), radius, fill=False, color='gray', lw=1.5, linestyle='-')
         ax.add_artist(circle)
-    
+
     elif plane_name == 'Sagittal':
         # Semicircle for sagittal plane (anterior side)
         # The breast extends from posterior (x=0) to anterior (x=radius)
@@ -286,7 +302,7 @@ def _draw_anatomical_shape(ax, plane_name: str, config: dict, radius: float, sid
         ax.add_artist(arc)
         # Straight line at posterior edge (x=0)
         ax.plot([0, 0], [-radius, radius], color='gray', lw=1.5, linestyle='-')
-    
+
     elif plane_name == 'Axial':
         # Semicircle for axial plane (anterior side)
         # The breast extends from posterior (y=0) to anterior (y=radius)
@@ -303,7 +319,7 @@ def _draw_anatomical_shape(ax, plane_name: str, config: dict, radius: float, sid
 
 def _draw_reference_lines(ax, plane_name: str):
     """Draw reference lines through nipple."""
-    
+
     if plane_name == 'Coronal':
         # Both horizontal and vertical lines
         ax.axhline(0, color='red', lw=1, alpha=0.5, zorder=1)
@@ -316,28 +332,78 @@ def _draw_reference_lines(ax, plane_name: str):
         ax.axvline(0, color='red', lw=1, alpha=0.5, zorder=1)
 
 
-def _add_quadrant_labels(ax, config: dict, side: str, radius: float):
+def _add_quadrant_labels(ax, config: dict, side: str, radius: float, plane_name: str):
     """Add quadrant labels to the plot."""
-    
+
     quadrants = config['quadrants_right'] if side == 'right' else config['quadrants_left']
-    text_offset = radius * 0.7
-    
-    # Top-right quadrant
-    if quadrants[0]:
-        ax.text(text_offset, text_offset, quadrants[0],
-                ha='center', va='center', fontsize=10, fontweight='bold', alpha=0.6)
-    
-    # Top-left quadrant
-    if quadrants[1]:
-        ax.text(-text_offset, text_offset, quadrants[1],
-                ha='center', va='center', fontsize=10, fontweight='bold', alpha=0.6)
-    
-    # Bottom-right quadrant
-    if quadrants[2]:
-        ax.text(text_offset, -text_offset, quadrants[2],
-                ha='center', va='center', fontsize=10, fontweight='bold', alpha=0.6)
-    
-    # Bottom-left quadrant
-    if quadrants[3]:
-        ax.text(-text_offset, -text_offset, quadrants[3],
-                ha='center', va='center', fontsize=10, fontweight='bold', alpha=0.6)
+
+    if plane_name == 'Coronal':
+        # Position labels on diagonal at ~45 degrees, outside the circle
+        diagonal_offset = radius * 0.85
+
+        # Top-right quadrant
+        if quadrants[0]:
+            ax.text(diagonal_offset, diagonal_offset, quadrants[0],
+                    ha='center', va='center', fontsize=10, fontweight='bold', alpha=0.6)
+
+        # Top-left quadrant
+        if quadrants[1]:
+            ax.text(-diagonal_offset, diagonal_offset, quadrants[1],
+                    ha='center', va='center', fontsize=10, fontweight='bold', alpha=0.6)
+
+        # Bottom-right quadrant
+        if quadrants[2]:
+            ax.text(diagonal_offset, -diagonal_offset, quadrants[2],
+                    ha='center', va='center', fontsize=10, fontweight='bold', alpha=0.6)
+
+        # Bottom-left quadrant
+        if quadrants[3]:
+            ax.text(-diagonal_offset, -diagonal_offset, quadrants[3],
+                    ha='center', va='center', fontsize=10, fontweight='bold', alpha=0.6)
+
+    elif plane_name == 'Sagittal':
+        # Sagittal: semicircle, place labels to the LEFT of the arc
+        # quadrants[0] = 'upper' (top), quadrants[2] = 'lower' (bottom)
+        # X-axis starts at 0 (anterior/nipple), extends to posterior
+        # Place labels at x=0 (left edge of the arc)
+        x_pos = 40  # Slightly to the right of the posterior edge
+        y_upper = radius * 0.9  # Upper position
+        y_lower = -radius * 0.9  # Lower position
+
+        # Upper label
+        if quadrants[0]:
+            ax.text(x_pos, y_upper, quadrants[0],
+                    ha='right', va='center', fontsize=10, fontweight='bold', alpha=0.6)
+
+        # Lower label
+        if quadrants[2]:
+            ax.text(x_pos, y_lower, quadrants[2],
+                    ha='right', va='center', fontsize=10, fontweight='bold', alpha=0.6)
+
+    elif plane_name == 'Axial':
+        # Axial: semicircle, place labels to the BOTTOM of the arc
+        # quadrants[0] = 'inner', quadrants[1] = 'outer' (for right breast)
+        # Y-axis starts at 0 (anterior/nipple), extends to posterior
+        # Place labels at y=0 (bottom edge of the arc)
+        y_pos = 30  # Slightly above the posterior edge
+        x_inner = radius * 0.9  # Inner position (closer to midline)
+        x_outer = -radius * 0.9 if side == 'right' else radius * 0.9  # Outer position (away from midline)
+
+        # For right breast: inner is positive x, outer is negative x
+        # For left breast: inner is negative x, outer is positive x
+        if side == 'right':
+            x_inner_pos = radius * 0.9
+            x_outer_pos = -radius * 0.9
+        else:
+            x_inner_pos = -radius * 0.9
+            x_outer_pos = radius * 0.9
+
+        # Inner label (quadrants[0])
+        if quadrants[0]:
+            ax.text(x_inner_pos, y_pos, quadrants[0],
+                    ha='center', va='top', fontsize=10, fontweight='bold', alpha=0.6)
+
+        # Outer label (quadrants[1])
+        if quadrants[1]:
+            ax.text(x_outer_pos, y_pos, quadrants[1],
+                    ha='center', va='top', fontsize=10, fontweight='bold', alpha=0.6)

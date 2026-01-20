@@ -1188,8 +1188,10 @@ def align_prone_to_supine(
 
     # 4. Calculate Displacements Relative to Nipple
     # ----------------------------------------------------------
-    # How much did the landmark move *compared* to how much the nipple moved?
+    # Landmarks position relative to Nipple
+    lm_pos_prone_rel_nipple = landmark_prone_transformed - nipple_prone_transformed
 
+    # How much did the landmark move *compared* to how much the nipple moved?
     lm_disp_rel_nipple = lm_disp_rel_sternum - closest_nipple_disp_vec
     lm_disp_mag_rel_nipple = np.linalg.norm(lm_disp_rel_nipple, axis=1)
 
