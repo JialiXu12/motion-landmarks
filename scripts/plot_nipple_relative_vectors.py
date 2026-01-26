@@ -106,19 +106,19 @@ def _plot_single_plane(
     # Set axis limits based on plane
     if plane_name == 'Sagittal':
         # For sagittal: x-axis starts at 0 (anterior/nipple), 500 units wide
-        lims_x = (0, 500)  # Anterior (0) to Posterior (500)
-        lims_y = (-250, 250)  # Inf-Sup (500 units tall)
-        radius = 250
+        lims_x = (0, 300)  # Anterior (0) to Posterior (500)
+        lims_y = (-150, 150)  # Inf-Sup (500 units tall)
+        radius = 150
     elif plane_name == 'Axial':
         # For axial: y-axis starts at 0 (anterior/nipple), 500 units wide
-        lims_x = (-250, 250)  # Right-Left (500 units wide)
-        lims_y = (0, 500)  # Anterior (0) to Posterior (500)
-        radius = 250
+        lims_x = (-150, 150)  # Right-Left (500 units wide)
+        lims_y = (0, 300)  # Anterior (0) to Posterior (500)
+        radius = 150
     else:
         # For Coronal: use symmetric limits
-        lims_x = (-250, 250)
-        lims_y = (-250, 250)
-        radius = 250
+        lims_x = (-150, 150)
+        lims_y = (-150, 150)
+        radius = 150
 
 
     # Plot Right Breast
@@ -182,16 +182,16 @@ def _plot_breast_side(
     # Set ticks with 50mm intervals
     if plane_name == 'Sagittal':
         # For sagittal, x-axis starts at 0 and extends to 500
-        ax.set_xticks(np.arange(0, 501, 50))
-        ax.set_yticks(np.arange(-250, 251, 50))
+        ax.set_xticks(np.arange(0, 301, 50))
+        ax.set_yticks(np.arange(-150, 151, 50))
     elif plane_name == 'Axial':
         # For axial, y-axis starts at 0 and extends to 500
-        ax.set_xticks(np.arange(-250, 251, 50))
-        ax.set_yticks(np.arange(0, 501, 50))
+        ax.set_xticks(np.arange(-150, 151, 50))
+        ax.set_yticks(np.arange(0, 301, 50))
     else:
         # For Coronal, both axes symmetric
-        ax.set_xticks(np.arange(-250, 251, 50))
-        ax.set_yticks(np.arange(-250, 251, 50))
+        ax.set_xticks(np.arange(-150, 151, 50))
+        ax.set_yticks(np.arange(-150, 151, 50))
 
     ax.set_aspect('equal', adjustable='box')
     # Grid style (dashed, alpha=0.5)
@@ -204,7 +204,7 @@ def _plot_breast_side(
     _draw_reference_lines(ax, plane_name)
 
     # Plot nipple at origin (matching plot_vectors_rel_sternum origin marker)
-    ax.plot(0, 0, 'ko', markersize=5, zorder=10, label='Nipple (Origin)')
+    ax.plot(0, 0, 'ro', markersize=5, zorder=10, label='Nipple (Origin)')
 
     # Plot vectors
     if len(base_points) > 0:
