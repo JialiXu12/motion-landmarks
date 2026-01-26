@@ -1,23 +1,31 @@
+# ------------------------------------------------------------------------------
+# IMPORTS
+# ------------------------------------------------------------------------------
 from pathlib import Path
 import pandas as pd
-import pingouin as pg
 import numpy as np
 from scipy import stats
+
+# Plotting
 import matplotlib.pyplot as plt
 from matplotlib import cm
 import seaborn as sns
+from matplotlib.patches import Circle, Arc
+import matplotlib.patches as patches
+
+# Statistical analysis
+import pingouin as pg
 from statsmodels.formula.api import ols
 import statsmodels.api as sm
 from statsmodels.stats.anova import anova_lm
 from statsmodels.stats.multicomp import MultiComparison
 from pingouin import welch_anova, pairwise_gameshowell, rm_anova, pairwise_ttests
-from matplotlib.patches import Circle, Arc
-import matplotlib.patches as patches
+
 from plot_nipple_relative_vectors import plot_nipple_relative_vectors
 
 
 OUTPUT_DIR = Path("../output")
-EXCEL_FILE_PATH = OUTPUT_DIR / "landmark_results_v4_2026_01_12.xlsx"
+EXCEL_FILE_PATH = OUTPUT_DIR / "landmark_results_v5_2026_01_21.xlsx"
 
 
 def read_data(excel_path):
@@ -410,7 +418,7 @@ def plot_bmi_correlations(df, output_filename='BMI_Shift_Correlations.png'):
         scatter_kws={'alpha': 0.4, 'color': 'teal', 's': 40},
         line_kws={'color': 'firebrick', 'linewidth': 2}
     )
-    axes[0].set_title('Impact of BMI on Difference in DTN\n(β = -4.01, p < 0.001)', fontsize=14, fontweight='bold')
+    axes[0].set_title('Impact of BMI on Difference in DTN\n(β = -4.01, p < 0.001)', fontsize=14)
     axes[0].set_xlabel('Body Mass Index (BMI) [kg/m²]', fontsize=12)
     axes[0].set_ylabel('Difference in DTN [mm]', fontsize=12)
 
@@ -423,7 +431,7 @@ def plot_bmi_correlations(df, output_filename='BMI_Shift_Correlations.png'):
         scatter_kws={'alpha': 0.4, 'color': 'darkblue', 's': 40},
         line_kws={'color': 'firebrick', 'linewidth': 2}
     )
-    axes[1].set_title('Impact of BMI on Difference in DTR\n(β = -1.44, p < 0.001)', fontsize=14, fontweight='bold')
+    axes[1].set_title('Impact of BMI on Difference in DTR\n(β = -1.44, p < 0.001)', fontsize=14)
     axes[1].set_xlabel('Body Mass Index (BMI) [kg/m²]', fontsize=12)
     axes[1].set_ylabel('Difference in DTR [mm]', fontsize=12)
 
@@ -431,7 +439,7 @@ def plot_bmi_correlations(df, output_filename='BMI_Shift_Correlations.png'):
     plt.tight_layout()
 
     # Save and show
-    save_path = Path("..") / "output" /  "figs" / "BMI" / output_filename
+    save_path = Path("..") / "output" / "figs" / "v5" / "BMI" / output_filename
     save_path.parent.mkdir(parents=True, exist_ok=True)  # Create directory if it doesn't exist
     plt.savefig(save_path, dpi=300)
     plt.show()
@@ -596,17 +604,21 @@ def plot_vectors_for_vl81(df_ave):
         plt.show()
 
 
-def plot_vectors_rel_sternum(df_ave, color_by='breast', vl_id=None):
+def plot_vectors_rel_sternum(df_ave, color_by='breast', vl_id=None, data_type='landmarks', include_dual_sagittal=False):
     """
-    Plots displacement vectors (Prone -> Supine) for both breasts.
+    Plots displacement vectors (Prone -> Supine) for both breasts relative to sternum.
+    Supports plotting either landmark positions or nipple positions.
 
     Args:
         df_ave: DataFrame with landmark data
         color_by: Coloring scheme - 'breast' (default, blue/green),
                   'subject' (color by VL_ID), or 'dts' (color by distance to skin)
         vl_id: Optional subject ID to filter data. If None, uses all subjects.
+        data_type: Type of data to plot - 'landmarks' (default) or 'nipples'
+        include_dual_sagittal: Whether to include the dual sagittal view plot
     """
-    print("\n--- Plotting Vectors Relative to Sternum ---")
+    data_type_name = "Landmarks" if data_type == 'landmarks' else "Nipples"
+    print(f"\n--- Plotting {data_type_name} Relative to Sternum ---")
     print(f"Color scheme: {color_by}")
 
     # 1. Filter data if specific subject requested
@@ -628,26 +640,65 @@ def plot_vectors_rel_sternum(df_ave, color_by='breast', vl_id=None):
     right_df = df_subset[df_subset['landmark side (prone)'] == 'RB']
 
     # 3. Helper to extract Base Points (Prone) and Vectors (Supine - Prone)
-    def get_points_and_vectors(sub_df):
+    def get_points_and_vectors(sub_df, is_left_breast=True):
         if sub_df.empty:
             return np.empty((0, 3)), np.empty((0, 3)), None, None
 
-        # Extract Prone (Start/Base points)
-        prone_x = sub_df['landmark ave prone transformed x'].values
-        prone_y = sub_df['landmark ave prone transformed y'].values
-        prone_z = sub_df['landmark ave prone transformed z'].values
+        if data_type == 'landmarks':
+            # Extract Prone (Start/Base points) - landmarks are already relative to sternum
+            prone_x = sub_df['landmark ave prone transformed x'].values
+            prone_y = sub_df['landmark ave prone transformed y'].values
+            prone_z = sub_df['landmark ave prone transformed z'].values
+
+            # Extract Supine (End points)
+            supine_x = sub_df['landmark ave supine x'].values
+            supine_y = sub_df['landmark ave supine y'].values
+            supine_z = sub_df['landmark ave supine z'].values
+
+        elif data_type == 'nipples':
+            # Get sternum positions for calculating nipple relative positions
+            sternum_prone_x = sub_df['sternum superior prone transformed x'].values
+            sternum_prone_y = sub_df['sternum superior prone transformed y'].values
+            sternum_prone_z = sub_df['sternum superior prone transformed z'].values
+            sternum_supine_x = sub_df['sternum superior supine x'].values
+            sternum_supine_y = sub_df['sternum superior supine y'].values
+            sternum_supine_z = sub_df['sternum superior supine z'].values
+
+            # Get nipple columns based on breast side
+            if is_left_breast:
+                nipple_prone_x_raw = sub_df['left nipple prone transformed x'].values
+                nipple_prone_y_raw = sub_df['left nipple prone transformed y'].values
+                nipple_prone_z_raw = sub_df['left nipple prone transformed z'].values
+                nipple_supine_x_raw = sub_df['left nipple supine x'].values
+                nipple_supine_y_raw = sub_df['left nipple supine y'].values
+                nipple_supine_z_raw = sub_df['left nipple supine z'].values
+            else:
+                nipple_prone_x_raw = sub_df['right nipple prone transformed x'].values
+                nipple_prone_y_raw = sub_df['right nipple prone transformed y'].values
+                nipple_prone_z_raw = sub_df['right nipple prone transformed z'].values
+                nipple_supine_x_raw = sub_df['right nipple supine x'].values
+                nipple_supine_y_raw = sub_df['right nipple supine y'].values
+                nipple_supine_z_raw = sub_df['right nipple supine z'].values
+
+            # Calculate nipple positions relative to sternum
+            prone_x = nipple_prone_x_raw - sternum_prone_x
+            prone_y = nipple_prone_y_raw - sternum_prone_y
+            prone_z = nipple_prone_z_raw - sternum_prone_z
+            supine_x = nipple_supine_x_raw - sternum_supine_x
+            supine_y = nipple_supine_y_raw - sternum_supine_y
+            supine_z = nipple_supine_z_raw - sternum_supine_z
+        else:
+            raise ValueError(f"Unknown data_type: {data_type}. Use 'landmarks' or 'nipples'.")
+
         base_points = np.column_stack((prone_x, prone_y, prone_z))
 
         # Extract Supine (End points)
-        supine_x = sub_df['landmark ave supine x'].values
-        supine_y = sub_df['landmark ave supine y'].values
-        supine_z = sub_df['landmark ave supine z'].values
         end_points = np.column_stack((supine_x, supine_y, supine_z))
 
         # Calculate Vector = End - Base
         vectors = end_points - base_points
 
-        # Extract DTS values if available
+        # Extract DTS values if available (only relevant for landmarks)
         dts_col = 'Distance to skin (prone) [mm]'
         dts_values = sub_df[dts_col].values if dts_col in sub_df.columns else None
 
@@ -656,8 +707,8 @@ def plot_vectors_rel_sternum(df_ave, color_by='breast', vl_id=None):
 
         return base_points, vectors, dts_values, vl_ids
 
-    base_left, vec_left, dts_left, vl_ids_left = get_points_and_vectors(left_df)
-    base_right, vec_right, dts_right, vl_ids_right = get_points_and_vectors(right_df)
+    base_left, vec_left, dts_left, vl_ids_left = get_points_and_vectors(left_df, is_left_breast=True)
+    base_right, vec_right, dts_right, vl_ids_right = get_points_and_vectors(right_df, is_left_breast=False)
 
     # 4. Define Plane Configuration
     # 0: X (Right/Left), 1: Y (Ant/Post), 2: Z (Inf/Sup)
@@ -683,6 +734,7 @@ def plot_vectors_rel_sternum(df_ave, color_by='breast', vl_id=None):
     radius = 150
 
     # 5. Prepare colormaps for 'subject' coloring
+    subject_color_map = {}  # Initialize empty dict
     if color_by == 'subject':
         # Get unique subject IDs from combined left and right data
         all_vl_ids = []
@@ -704,7 +756,8 @@ def plot_vectors_rel_sternum(df_ave, color_by='breast', vl_id=None):
 
         fig, ax = plt.subplots(1, 1, figsize=(10, 8))
 
-        # Create title based on coloring scheme
+        # Create title based on coloring scheme and data type
+        data_label = "landmarks" if data_type == 'landmarks' else "nipples"
         if color_by == 'dts':
             title_suffix = " (colored by DTS)"
         elif color_by == 'subject':
@@ -712,7 +765,7 @@ def plot_vectors_rel_sternum(df_ave, color_by='breast', vl_id=None):
         else:
             title_suffix = ""
 
-        fig.suptitle(f"Displacement of landmarks relative to the sternum ({plane_name.lower()} view){title_suffix}", fontsize=14)
+        fig.suptitle(f"Displacement of {data_label} relative to the sternum ({plane_name.lower()} view){title_suffix}", fontsize=14)
 
         # Setup axes
         ax.set_xlabel(config['xlabel'], fontsize=12)
@@ -819,7 +872,7 @@ def plot_vectors_rel_sternum(df_ave, color_by='breast', vl_id=None):
                     right_x_pos = lims[0] + (lims[1] - lims[0]) * 0.25  # Position at 25% from left edge
                 right_y_pos = lims[1] * 0.85
                 ax.text(right_x_pos, right_y_pos, 'Right Breast',
-                       ha='center', va='center', fontsize=11, fontweight='bold',
+                       ha='center', va='center', fontsize=11,
                        color='blue', alpha=0.6)
             elif color_by == 'dts':
                 # For DTS coloring: black color for axial and coronal, no text for sagittal
@@ -827,7 +880,7 @@ def plot_vectors_rel_sternum(df_ave, color_by='breast', vl_id=None):
                     right_x_pos = np.mean(base_right[:, axis_x_idx])
                     right_y_pos = lims[1] * 0.85
                     ax.text(right_x_pos, right_y_pos, 'Right Breast',
-                           ha='center', va='center', fontsize=11, fontweight='bold',
+                           ha='center', va='center', fontsize=11,
                            color='black', alpha=0.6)
             elif color_by == 'subject':
                 # For subject coloring: black color for axial and coronal only
@@ -835,7 +888,7 @@ def plot_vectors_rel_sternum(df_ave, color_by='breast', vl_id=None):
                     right_x_pos = np.mean(base_right[:, axis_x_idx])
                     right_y_pos = lims[1] * 0.85
                     ax.text(right_x_pos, right_y_pos, 'Right Breast',
-                           ha='center', va='center', fontsize=11, fontweight='bold',
+                           ha='center', va='center', fontsize=11,
                            color='black', alpha=0.6)
 
         # Plot Left Breast Vectors
@@ -919,24 +972,24 @@ def plot_vectors_rel_sternum(df_ave, color_by='breast', vl_id=None):
                     left_x_pos = lims[0] + (lims[1] - lims[0]) * 0.75  # Position at 75% from left edge
                 left_y_pos = lims[1] * 0.85
                 ax.text(left_x_pos, left_y_pos, 'Left Breast',
-                       ha='center', va='center', fontsize=11, fontweight='bold',
-                       color='green', alpha=0.6)
+                       ha='center', va='center', fontsize=12,
+                       color='green', alpha=0.9)
             elif color_by == 'dts':
                 # For DTS coloring: black color for axial and coronal, no text for sagittal
                 if plane_name != 'Sagittal':
-                    left_x_pos = np.mean(base_left[:, axis_x_idx])
+                    left_x_pos = lims[0] + (lims[1] - lims[0]) * 0.75
                     left_y_pos = lims[1] * 0.85
                     ax.text(left_x_pos, left_y_pos, 'Left Breast',
-                           ha='center', va='center', fontsize=11, fontweight='bold',
-                           color='black', alpha=0.6)
+                           ha='center', va='center', fontsize=12,
+                           color='black', alpha=0.9)
             elif color_by == 'subject':
                 # For subject coloring: black color for axial and coronal only
                 if plane_name != 'Sagittal':
-                    left_x_pos = np.mean(base_left[:, axis_x_idx])
+                    left_x_pos = lims[0] + (lims[1] - lims[0]) * 0.75
                     left_y_pos = lims[1] * 0.85
                     ax.text(left_x_pos, left_y_pos, 'Left Breast',
-                           ha='center', va='center', fontsize=11, fontweight='bold',
-                           color='black', alpha=0.6)
+                           ha='center', va='center', fontsize=12,
+                           color='black', alpha=0.9)
 
         # Add colorbar for DTS coloring
         if color_by == 'dts' and scatter_for_colorbar is not None:
@@ -952,22 +1005,225 @@ def plot_vectors_rel_sternum(df_ave, color_by='breast', vl_id=None):
 
         plt.tight_layout()
 
-        # Create filename based on coloring scheme
+        # Create filename based on coloring scheme and data type
+        data_prefix = "Landmarks" if data_type == 'landmarks' else "Nipples"
         if color_by == 'dts':
-            filename = f"Vectors_rel_sternum_{plane_name}_DTS.png"
+            filename = f"{data_prefix}_rel_sternum_{plane_name}_DTS.png"
         elif color_by == 'subject':
-            filename = f"Vectors_rel_sternum_{plane_name}_by_subject.png"
+            filename = f"{data_prefix}_rel_sternum_{plane_name}_by_subject.png"
         else:
-            filename = f"Vectors_rel_sternum_{plane_name}.png"
+            filename = f"{data_prefix}_rel_sternum_{plane_name}.png"
 
-        save_path = Path("..") / "output" / "figs" / "landmark vectors" / filename
+        save_path = Path("..") / "output" / "figs" / "v5" / "landmark vectors" / filename
         save_path.parent.mkdir(parents=True, exist_ok=True)
         plt.savefig(save_path, dpi=300)
         print(f"Saved: {save_path}")
         plt.show()
         plt.close(fig)
 
-    print(f"✓ Completed plotting vectors relative to sternum with '{color_by}' coloring")
+    # 7. Dual Sagittal View (optional)
+    if include_dual_sagittal:
+        _plot_dual_sagittal_view_sternum(
+            base_left, vec_left, dts_left, vl_ids_left,
+            base_right, vec_right, dts_right, vl_ids_right,
+            color_by=color_by, data_type=data_type
+        )
+
+    print(f"[OK] Completed plotting {data_type} relative to sternum with '{color_by}' coloring")
+
+    return {
+        'base_left': base_left,
+        'vec_left': vec_left,
+        'base_right': base_right,
+        'vec_right': vec_right,
+        'dts_left': dts_left,
+        'dts_right': dts_right,
+        'vl_ids_left': vl_ids_left,
+        'vl_ids_right': vl_ids_right
+    }
+
+
+def _plot_dual_sagittal_view_sternum(
+    base_left, vec_left, dts_left, vl_ids_left,
+    base_right, vec_right, dts_right, vl_ids_right,
+    color_by='breast', data_type='landmarks'
+):
+    """
+    Internal helper function for dual sagittal view with two x-axis origins.
+    Used by plot_vectors_rel_sternum.
+
+    Args:
+        base_left, vec_left: Base points and vectors for left breast
+        dts_left: Distance to skin values for left breast
+        vl_ids_left: VL_ID values for left breast
+        base_right, vec_right: Base points and vectors for right breast
+        dts_right: Distance to skin values for right breast
+        vl_ids_right: VL_ID values for right breast
+        color_by: Coloring scheme - 'breast', 'subject', or 'dts'
+        data_type: 'landmarks' or 'nipples'
+    """
+    data_label = "landmarks" if data_type == 'landmarks' else "nipples"
+    print(f"\n--- Plotting Dual Sagittal View ({data_label}) ---")
+
+    # Title
+    title_suffix = ""
+    if color_by == 'dts':
+        title_suffix = " (colored by DTS)"
+    elif color_by == 'subject':
+        title_suffix = " (colored by subject)"
+
+    fig, (ax_left, ax_right) = plt.subplots(1, 2, figsize=(14, 8), sharey=True, constrained_layout=True)
+    fig.suptitle(f"Displacement of {data_label} relative to sternum (sagittal dual view){title_suffix}", fontsize=14)
+
+    # Common Settings - consistent limits
+    ylim_val = 250
+    ax_left.set_ylim(-ylim_val, ylim_val)
+    ax_right.set_ylim(-ylim_val, ylim_val)
+
+    yticks = np.arange(-ylim_val, ylim_val+1, 50)
+    ax_left.set_yticks(yticks)
+    ax_right.set_yticks(yticks)
+
+    # X limits
+    ax_left.set_xlim(150, -250)
+    ax_right.set_xlim(-250, 150)
+    ax_left.set_xticks([150, 100, 50, 0, -50, -100, -150, -200, -250])
+    ax_right.set_xticks([-250, -200, -150, -100, -50, 0, 50, 100, 150])
+
+    # Labels
+    xlabel_color_left = 'blue' if color_by == 'breast' else 'black'
+    xlabel_color_right = 'green' if color_by == 'breast' else 'black'
+    ax_left.set_xlabel("Post-Ant (mm)", color=xlabel_color_left, fontsize=12)
+    ax_right.set_xlabel("Ant-Post (mm)", color=xlabel_color_right, fontsize=12)
+    ax_left.set_ylabel("Inf-Sup (mm)", fontsize=12)
+
+    # Spine configuration for shared center
+    ax_left.spines['right'].set_position(('data', 0))
+    ax_left.spines['left'].set_visible(False)
+    ax_left.spines['top'].set_visible(False)
+    ax_left.spines['right'].set_color('black')
+
+    ax_right.spines['left'].set_position(('data', 0))
+    ax_right.spines['right'].set_visible(False)
+    ax_right.spines['top'].set_visible(False)
+    ax_right.spines['left'].set_color('black')
+
+    # Origins and grid
+    ax_left.plot(0, 0, 'o', color='black', markersize=6, zorder=10)
+    ax_right.plot(0, 0, 'o', color='black', markersize=6, zorder=10)
+    ax_left.grid(True, linestyle='--', alpha=0.5)
+    ax_right.grid(True, linestyle='--', alpha=0.5)
+    ax_left.set_aspect('equal', adjustable='box')
+    ax_right.set_aspect('equal', adjustable='box')
+
+    # Prepare subject colormap if needed
+    subject_color_map = {}
+    if color_by == 'subject':
+        all_vl_ids = []
+        if vl_ids_left is not None:
+            all_vl_ids.extend(vl_ids_left)
+        if vl_ids_right is not None:
+            all_vl_ids.extend(vl_ids_right)
+        unique_subjects = sorted(list(set(all_vl_ids)))
+        n_subjects = len(unique_subjects)
+        subject_cmap = cm.get_cmap('viridis', n_subjects)
+        subject_color_map = {subj: subject_cmap(i) for i, subj in enumerate(unique_subjects)}
+
+    scatter_left_cbar = None
+    scatter_right_cbar = None
+
+    # --- LEFT PLOT (RIGHT BREAST) ---
+    if len(base_right) > 0:
+        if color_by == 'dts' and dts_right is not None:
+            norm = plt.Normalize(vmin=0, vmax=40)
+            cmap_dts = plt.cm.viridis
+            colors = cmap_dts(norm(dts_right))
+            for i in range(len(base_right)):
+                ax_left.quiver(base_right[i, 1], base_right[i, 2],
+                              vec_right[i, 1], vec_right[i, 2],
+                              angles='xy', scale_units='xy', scale=1,
+                              color=colors[i], width=0.003, headwidth=3, alpha=0.7)
+            scatter_left_cbar = ax_left.scatter(base_right[:, 1], base_right[:, 2],
+                                                c=dts_right, cmap='viridis', s=20, vmin=0, vmax=40, zorder=5)
+        elif color_by == 'subject' and vl_ids_right is not None and subject_color_map:
+            for i in range(len(base_right)):
+                color = subject_color_map.get(vl_ids_right[i], 'blue')
+                ax_left.quiver(base_right[i, 1], base_right[i, 2],
+                              vec_right[i, 1], vec_right[i, 2],
+                              angles='xy', scale_units='xy', scale=1,
+                              color=color, width=0.003, headwidth=3, alpha=0.7)
+                ax_left.scatter(base_right[i, 1], base_right[i, 2], c=[color], s=20, zorder=5)
+        else:
+            ax_left.quiver(base_right[:, 1], base_right[:, 2],
+                          vec_right[:, 1], vec_right[:, 2],
+                          angles='xy', scale_units='xy', scale=1,
+                          color='blue', width=0.003, headwidth=3, alpha=0.6)
+            ax_left.scatter(base_right[:, 1], base_right[:, 2], c='blue', s=10, alpha=0.6)
+
+    # Breast label
+    label_color = 'blue' if color_by == 'breast' else 'black'
+    ax_left.text(0, ylim_val*0.82, "Right Breast", ha='center', va='center',
+                color=label_color, fontsize=12,
+                bbox=dict(boxstyle='round,pad=0.6', facecolor='white',
+                         edgecolor=label_color, alpha=0.9, linewidth=0), zorder=100)
+
+    # --- RIGHT PLOT (LEFT BREAST) ---
+    if len(base_left) > 0:
+        if color_by == 'dts' and dts_left is not None:
+            norm = plt.Normalize(vmin=0, vmax=40)
+            cmap_dts = plt.cm.viridis
+            colors = cmap_dts(norm(dts_left))
+            for i in range(len(base_left)):
+                ax_right.quiver(base_left[i, 1], base_left[i, 2],
+                               vec_left[i, 1], vec_left[i, 2],
+                               angles='xy', scale_units='xy', scale=1,
+                               color=colors[i], width=0.003, headwidth=3, alpha=0.7)
+            scatter_right_cbar = ax_right.scatter(base_left[:, 1], base_left[:, 2],
+                                                  c=dts_left, cmap='viridis', s=20, vmin=0, vmax=40, zorder=5)
+        elif color_by == 'subject' and vl_ids_left is not None and subject_color_map:
+            for i in range(len(base_left)):
+                color = subject_color_map.get(vl_ids_left[i], 'green')
+                ax_right.quiver(base_left[i, 1], base_left[i, 2],
+                               vec_left[i, 1], vec_left[i, 2],
+                               angles='xy', scale_units='xy', scale=1,
+                               color=color, width=0.003, headwidth=3, alpha=0.7)
+                ax_right.scatter(base_left[i, 1], base_left[i, 2], c=[color], s=20, zorder=5)
+        else:
+            ax_right.quiver(base_left[:, 1], base_left[:, 2],
+                           vec_left[:, 1], vec_left[:, 2],
+                           angles='xy', scale_units='xy', scale=1,
+                           color='green', width=0.003, headwidth=3, alpha=0.6)
+            ax_right.scatter(base_left[:, 1], base_left[:, 2], c='green', s=10, alpha=0.6)
+
+    # Breast label
+    label_color = 'green' if color_by == 'breast' else 'black'
+    ax_right.text(0, ylim_val*0.82, "Left Breast", ha='center', va='center',
+                 color=label_color, fontsize=12,
+                 bbox=dict(boxstyle='round,pad=0.6', facecolor='white',
+                          edgecolor=label_color, alpha=0.9, linewidth=0), zorder=100)
+
+    # Colorbar for DTS
+    if color_by == 'dts':
+        scatter_for_cbar = scatter_right_cbar if scatter_right_cbar is not None else scatter_left_cbar
+        if scatter_for_cbar is not None:
+            cbar = plt.colorbar(scatter_for_cbar, ax=ax_right, pad=0.02)
+            cbar.set_label('DTS (mm)', rotation=270, labelpad=15, fontsize=12)
+
+    # Save
+    data_prefix = "Landmarks" if data_type == 'landmarks' else "Nipples"
+    if color_by == 'dts':
+        filename = f"{data_prefix}_rel_sternum_sagittal_dual_DTS.png"
+    elif color_by == 'subject':
+        filename = f"{data_prefix}_rel_sternum_sagittal_dual_by_subject.png"
+    else:
+        filename = f"{data_prefix}_rel_sternum_sagittal_dual.png"
+
+    save_path = Path("..") / "output" / "figs" / "v5" / "landmark vectors" / filename
+    save_path.parent.mkdir(parents=True, exist_ok=True)
+    plt.savefig(save_path, dpi=300)
+    print(f"Saved: {save_path}")
+    plt.show()
+    plt.close(fig)
 
 
 def plot_3panel_displacement_mechanism(df_ave, save_path=None):
@@ -1312,299 +1568,299 @@ def plot_3panel_displacement_mechanism(df_ave, save_path=None):
     }
 
 
-def plot_sagittal_dual_axes(df_ave, color_by='breast', vl_id=None):
-    """
-    Creates a detailed dual-plot for the Sagittal plane (Left and Right breasts side-by-side)
-    with specific axis configurations:
-    - Shared vertical axis at x=0 (Inf-Sup)
-    - Two separate x-axis origins
-    - Right Breast (Right side): Ant-Post (mm), Blue
-    - Left Breast (Left side): Post-Ant (mm), Green
-
-    Args:
-        df_ave: DataFrame with landmark data
-        color_by: Coloring scheme - 'breast' (default, blue/green),
-                  'subject' (color by VL_ID), or 'dts' (color by distance to skin)
-        vl_id: Optional subject ID to filter data. If None, uses all subjects.
-    """
-    print("\n--- Plotting Dual Sagittal Axes ---")
-    print(f"Color scheme: {color_by}")
-
-    # 1. Filter data if specific subject requested
-    if vl_id is not None:
-        df_subset = df_ave[df_ave['VL_ID'] == vl_id].copy()
-        if df_subset.empty:
-            print(f"Warning: No data found for subject VL_{vl_id}")
-            return
-        print(f"Filtering for subject VL_{vl_id}")
-    else:
-        df_subset = df_ave.copy()
-
-    if df_subset.empty:
-        print("No data found.")
-        return
-
-    # 2. Separate into Left (LB) and Right (RB) breasts
-    left_df = df_subset[df_subset['landmark side (prone)'] == 'LB']
-    right_df = df_subset[df_subset['landmark side (prone)'] == 'RB']
-
-    # 3. Helper to extract Base Points and Vectors
-    def get_points_and_vectors(sub_df):
-        if sub_df.empty:
-            return np.empty((0, 3)), np.empty((0, 3)), None, None
-
-        prone_x = sub_df['landmark ave prone transformed x'].values
-        prone_y = sub_df['landmark ave prone transformed y'].values
-        prone_z = sub_df['landmark ave prone transformed z'].values
-        base_points = np.column_stack((prone_x, prone_y, prone_z))
-
-        supine_x = sub_df['landmark ave supine x'].values
-        supine_y = sub_df['landmark ave supine y'].values
-        supine_z = sub_df['landmark ave supine z'].values
-        end_points = np.column_stack((supine_x, supine_y, supine_z))
-
-        vectors = end_points - base_points
-
-        # Extract DTS values if available
-        dts_col = 'Distance to skin (prone) [mm]'
-        dts_values = sub_df[dts_col].values if dts_col in sub_df.columns else None
-
-        # Extract VL_ID for subject coloring
-        vl_ids = sub_df['VL_ID'].values if 'VL_ID' in sub_df.columns else None
-
-        return base_points, vectors, dts_values, vl_ids
-
-    base_left, vec_left, dts_left, vl_ids_left = get_points_and_vectors(left_df)
-    base_right, vec_right, dts_right, vl_ids_right = get_points_and_vectors(right_df)
-
-    # 3a. Prepare colormaps for 'subject' coloring
-    if color_by == 'subject':
-        # Get unique subject IDs from combined left and right data
-        all_vl_ids = []
-        if vl_ids_left is not None:
-            all_vl_ids.extend(vl_ids_left)
-        if vl_ids_right is not None:
-            all_vl_ids.extend(vl_ids_right)
-        unique_subjects = sorted(list(set(all_vl_ids)))
-        n_subjects = len(unique_subjects)
-
-        # Create colormap for subjects
-        subject_cmap = cm.get_cmap('viridis', n_subjects)
-        subject_color_map = {subj: subject_cmap(i) for i, subj in enumerate(unique_subjects)}
-        print(f"Number of unique subjects: {n_subjects}")
-
-    # 4. Setup Plot
-    # Sagittal Plane: Y (Ant-Post) vs Z (Inf-Sup)
-
-    # Create title based on coloring scheme
-    if color_by == 'dts':
-        title_suffix = " (colored by DTS)"
-    elif color_by == 'subject':
-        title_suffix = " (colored by subject)"
-    else:
-        title_suffix = ""
-
-    # Create subplots with sharey=True and constrained_layout for proper spacing
-    fig, (ax_left, ax_right) = plt.subplots(1, 2, figsize=(14, 8), sharey=True, constrained_layout=True)
-    fig.suptitle(f"Displacement of landmarks relative to the sternum (sagittal dual view){title_suffix}", fontsize=14, fontweight='bold')
-
-    # Common Settings
-    ylim_val = 250
-    ax_left.set_ylim(-ylim_val, ylim_val)
-    ax_right.set_ylim(-ylim_val, ylim_val)
-
-    # Set Y-axis Ticks explicitly to include endpoints
-    yticks = np.arange(-250, 251, 50)
-    ax_left.set_yticks(yticks)
-    ax_right.set_yticks(yticks)
-
-    # --- LEFT PLOT (RIGHT BREAST) ---
-    # Metrics: Post-Ant (mm)
-    # Ticks: 150, 100, 50, 0, -50, -100, -150, -200, -250 (Anterior -> Posterior)
-    ax_left.set_xlim(150, -250)
-    ax_left.set_xticks([150, 100, 50, 0, -50, -100, -150, -200, -250])
-
-    # Color xlabel based on mode
-    xlabel_color = 'blue' if color_by == 'breast' else 'black'
-    ax_left.set_xlabel("Post-Ant (mm)", color=xlabel_color, fontsize=12, fontweight='bold')
-    ax_left.set_ylabel("Inf-Sup (mm)", fontsize=12, fontweight='bold')
-
-    # Spine Config: Shared Central Axis Effect
-    ax_left.spines['right'].set_position(('data', 0))
-    ax_left.spines['left'].set_visible(False)
-    ax_left.spines['top'].set_visible(False)
-    ax_left.spines['bottom'].set_visible(True)
-    ax_left.spines['right'].set_color('black')
-    ax_left.spines['right'].set_linewidth(1)
-
-    # Origin and Grid
-    ax_left.plot(0, 0, 'ko', markersize=6, zorder=10)
-    ax_left.grid(True, linestyle='--', alpha=0.5)
-    ax_left.set_aspect('equal', adjustable='box')
-
-    # Initialize colorbar placeholder for left plot
-    scatter_left_for_colorbar = None
-
-    # Plot Logic for Right Breast on Left Plot
-    if len(base_right) > 0:
-        if color_by == 'dts' and dts_right is not None:
-            # Color by DTS
-            norm = plt.Normalize(vmin=0, vmax=40)
-            cmap_dts = plt.cm.viridis
-            colors_right = cmap_dts(norm(dts_right))
-
-            for i in range(len(base_right)):
-                ax_left.quiver(
-                    base_right[i, 1], base_right[i, 2],
-                    vec_right[i, 1], vec_right[i, 2],
-                    angles='xy', scale_units='xy', scale=1,
-                    color=colors_right[i],
-                    width=0.003, headwidth=3, alpha=0.7
-                )
-
-            scatter_left_for_colorbar = ax_left.scatter(
-                base_right[:, 1], base_right[:, 2],
-                c=dts_right, cmap='viridis', s=20, vmin=0, vmax=40, zorder=5
-            )
-
-        elif color_by == 'subject' and vl_ids_right is not None:
-            # Color by subject
-            for i in range(len(base_right)):
-                color = subject_color_map.get(vl_ids_right[i], 'blue')
-                ax_left.quiver(
-                    base_right[i, 1], base_right[i, 2],
-                    vec_right[i, 1], vec_right[i, 2],
-                    angles='xy', scale_units='xy', scale=1,
-                    color=color, width=0.003, headwidth=3, alpha=0.7
-                )
-                ax_left.scatter(
-                    base_right[i, 1], base_right[i, 2],
-                    c=[color], s=20, zorder=5
-                )
-        else:
-            # Default: Blue
-            ax_left.quiver(
-                base_right[:, 1], base_right[:, 2],
-                vec_right[:, 1], vec_right[:, 2],
-                angles='xy', scale_units='xy', scale=1,
-                color='blue', width=0.003, headwidth=3, alpha=0.6
-            )
-            ax_left.scatter(base_right[:, 1], base_right[:, 2], c='blue', s=10, alpha=0.6)
-
-    # Add breast label (always shown for clarity)
-    label_color = 'blue' if color_by == 'breast' else 'black'
-    # Place label in upper portion with optimal positioning and styling for scientific presentation
-    ax_left.text(0, ylim_val*0.82, "Right Breast", ha='center', va='center',
-                color=label_color, fontweight='bold', fontsize=14,
-                bbox=dict(boxstyle='round,pad=0.6', facecolor='white',
-                         edgecolor=label_color, alpha=0.9, linewidth=0,
-                zorder=100)) # High zorder ensures text appears on top of data
-
-    # --- RIGHT PLOT (LEFT BREAST) ---
-    # Metrics: Ant-Post (mm)
-    # Ticks: -250, -200, ..., 150 (Posterior -> Anterior)
-    ax_right.set_xlim(-250, 150)
-    ax_right.set_xticks(np.arange(-250, 151, 50))
-
-    # Color xlabel based on mode
-    xlabel_color = 'green' if color_by == 'breast' else 'black'
-    ax_right.set_xlabel("Ant-Post (mm)", color=xlabel_color, fontsize=12, fontweight='bold')
-
-    # Move left spine to x=0
-    ax_right.spines['left'].set_position(('data', 0))
-    ax_right.spines['right'].set_visible(False)
-    ax_right.spines['top'].set_visible(False)
-    ax_right.spines['bottom'].set_visible(True)
-    ax_right.spines['left'].set_color('black')
-    ax_right.spines['left'].set_linewidth(1)
-
-    # Origin and Grid
-    ax_right.plot(0, 0, 'ko', markersize=6, zorder=10)
-    ax_right.grid(True, linestyle='--', alpha=0.5)
-    ax_right.set_aspect('equal', adjustable='box')
-
-    # Initialize colorbar placeholder for right plot
-    scatter_right_for_colorbar = None
-
-    # Plot Logic for Left Breast on Right Plot
-    if len(base_left) > 0:
-        if color_by == 'dts' and dts_left is not None:
-            # Color by DTS
-            norm = plt.Normalize(vmin=0, vmax=40)
-            cmap_dts = plt.cm.viridis
-            colors_left = cmap_dts(norm(dts_left))
-
-            for i in range(len(base_left)):
-                ax_right.quiver(
-                    base_left[i, 1], base_left[i, 2],
-                    vec_left[i, 1], vec_left[i, 2],
-                    angles='xy', scale_units='xy', scale=1,
-                    color=colors_left[i],
-                    width=0.003, headwidth=3, alpha=0.7
-                )
-
-            scatter_right_for_colorbar = ax_right.scatter(
-                base_left[:, 1], base_left[:, 2],
-                c=dts_left, cmap='viridis', s=20, vmin=0, vmax=40, zorder=5
-            )
-
-        elif color_by == 'subject' and vl_ids_left is not None:
-            # Color by subject
-            for i in range(len(base_left)):
-                color = subject_color_map.get(vl_ids_left[i], 'green')
-                ax_right.quiver(
-                    base_left[i, 1], base_left[i, 2],
-                    vec_left[i, 1], vec_left[i, 2],
-                    angles='xy', scale_units='xy', scale=1,
-                    color=color, width=0.003, headwidth=3, alpha=0.7
-                )
-                ax_right.scatter(
-                    base_left[i, 1], base_left[i, 2],
-                    c=[color], s=20, zorder=5
-                )
-        else:
-            # Default: Green
-            ax_right.quiver(
-                base_left[:, 1], base_left[:, 2],
-                vec_left[:, 1], vec_left[:, 2],
-                angles='xy', scale_units='xy', scale=1,
-                color='green', width=0.003, headwidth=3, alpha=0.6
-            )
-            ax_right.scatter(base_left[:, 1], base_left[:, 2], c='green', s=10, alpha=0.6)
-
-    # Add breast label (always shown for clarity)
-    label_color = 'green' if color_by == 'breast' else 'black'
-    # Place label in upper portion with optimal positioning and styling for scientific presentation
-    ax_right.text(0, ylim_val*0.82, "Left Breast", ha='center', va='center',
-                 color=label_color, fontweight='bold', fontsize=14,
-                 bbox=dict(boxstyle='round,pad=0.6', facecolor='white',
-                          edgecolor=label_color, alpha=0.9, linewidth=0),
-                 zorder=100)  # High zorder ensures text appears on top of data
-
-    # Add colorbar for DTS coloring
-    if color_by == 'dts':
-        # Use the scatter from either plot that has data
-        scatter_for_cbar = scatter_right_for_colorbar if scatter_right_for_colorbar is not None else scatter_left_for_colorbar
-        if scatter_for_cbar is not None:
-            # Add colorbar on the right side
-            cbar = plt.colorbar(scatter_for_cbar, ax=ax_right, pad=0.02)
-            cbar.set_label('DTS (mm)', rotation=270, labelpad=15, fontsize=12)
-
-    # Create filename based on coloring scheme
-    if color_by == 'dts':
-        filename = "Vectors_rel_sternum_sagittal_dual_DTS.png"
-    elif color_by == 'subject':
-        filename = "Vectors_rel_sternum_sagittal_dual_by_subject.png"
-    else:
-        filename = "Vectors_rel_sternum_sagittal_dual.png"
-
-    save_path = Path("..") / "output" / "figs" / "landmark vectors" / filename
-    save_path.parent.mkdir(parents=True, exist_ok=True)
-    plt.savefig(save_path, dpi=300)
-    print(f"Saved: {save_path}")
-    plt.show()
-    plt.close(fig)
-    print(f"✓ Completed dual sagittal plot with '{color_by}' coloring")
+# def plot_sagittal_dual_axes(df_ave, color_by='breast', vl_id=None):
+#     """
+#     Creates a detailed dual-plot for the Sagittal plane (Left and Right breasts side-by-side)
+#     with specific axis configurations:
+#     - Shared vertical axis at x=0 (Inf-Sup)
+#     - Two separate x-axis origins
+#     - Right Breast (Right side): Ant-Post (mm), Blue
+#     - Left Breast (Left side): Post-Ant (mm), Green
+#
+#     Args:
+#         df_ave: DataFrame with landmark data
+#         color_by: Coloring scheme - 'breast' (default, blue/green),
+#                   'subject' (color by VL_ID), or 'dts' (color by distance to skin)
+#         vl_id: Optional subject ID to filter data. If None, uses all subjects.
+#     """
+#     print("\n--- Plotting Dual Sagittal Axes ---")
+#     print(f"Color scheme: {color_by}")
+#
+#     # 1. Filter data if specific subject requested
+#     if vl_id is not None:
+#         df_subset = df_ave[df_ave['VL_ID'] == vl_id].copy()
+#         if df_subset.empty:
+#             print(f"Warning: No data found for subject VL_{vl_id}")
+#             return
+#         print(f"Filtering for subject VL_{vl_id}")
+#     else:
+#         df_subset = df_ave.copy()
+#
+#     if df_subset.empty:
+#         print("No data found.")
+#         return
+#
+#     # 2. Separate into Left (LB) and Right (RB) breasts
+#     left_df = df_subset[df_subset['landmark side (prone)'] == 'LB']
+#     right_df = df_subset[df_subset['landmark side (prone)'] == 'RB']
+#
+#     # 3. Helper to extract Base Points and Vectors
+#     def get_points_and_vectors(sub_df):
+#         if sub_df.empty:
+#             return np.empty((0, 3)), np.empty((0, 3)), None, None
+#
+#         prone_x = sub_df['landmark ave prone transformed x'].values
+#         prone_y = sub_df['landmark ave prone transformed y'].values
+#         prone_z = sub_df['landmark ave prone transformed z'].values
+#         base_points = np.column_stack((prone_x, prone_y, prone_z))
+#
+#         supine_x = sub_df['landmark ave supine x'].values
+#         supine_y = sub_df['landmark ave supine y'].values
+#         supine_z = sub_df['landmark ave supine z'].values
+#         end_points = np.column_stack((supine_x, supine_y, supine_z))
+#
+#         vectors = end_points - base_points
+#
+#         # Extract DTS values if available
+#         dts_col = 'Distance to skin (prone) [mm]'
+#         dts_values = sub_df[dts_col].values if dts_col in sub_df.columns else None
+#
+#         # Extract VL_ID for subject coloring
+#         vl_ids = sub_df['VL_ID'].values if 'VL_ID' in sub_df.columns else None
+#
+#         return base_points, vectors, dts_values, vl_ids
+#
+#     base_left, vec_left, dts_left, vl_ids_left = get_points_and_vectors(left_df)
+#     base_right, vec_right, dts_right, vl_ids_right = get_points_and_vectors(right_df)
+#
+#     # 3a. Prepare colormaps for 'subject' coloring
+#     if color_by == 'subject':
+#         # Get unique subject IDs from combined left and right data
+#         all_vl_ids = []
+#         if vl_ids_left is not None:
+#             all_vl_ids.extend(vl_ids_left)
+#         if vl_ids_right is not None:
+#             all_vl_ids.extend(vl_ids_right)
+#         unique_subjects = sorted(list(set(all_vl_ids)))
+#         n_subjects = len(unique_subjects)
+#
+#         # Create colormap for subjects
+#         subject_cmap = cm.get_cmap('viridis', n_subjects)
+#         subject_color_map = {subj: subject_cmap(i) for i, subj in enumerate(unique_subjects)}
+#         print(f"Number of unique subjects: {n_subjects}")
+#
+#     # 4. Setup Plot
+#     # Sagittal Plane: Y (Ant-Post) vs Z (Inf-Sup)
+#
+#     # Create title based on coloring scheme
+#     if color_by == 'dts':
+#         title_suffix = " (colored by DTS)"
+#     elif color_by == 'subject':
+#         title_suffix = " (colored by subject)"
+#     else:
+#         title_suffix = ""
+#
+#     # Create subplots with sharey=True and constrained_layout for proper spacing
+#     fig, (ax_left, ax_right) = plt.subplots(1, 2, figsize=(14, 8), sharey=True, constrained_layout=True)
+#     fig.suptitle(f"Displacement of landmarks relative to the sternum (sagittal dual view){title_suffix}", fontsize=14)
+#
+#     # Common Settings
+#     ylim_val = 250
+#     ax_left.set_ylim(-ylim_val, ylim_val)
+#     ax_right.set_ylim(-ylim_val, ylim_val)
+#
+#     # Set Y-axis Ticks explicitly to include endpoints
+#     yticks = np.arange(-250, 251, 50)
+#     ax_left.set_yticks(yticks)
+#     ax_right.set_yticks(yticks)
+#
+#     # --- LEFT PLOT (RIGHT BREAST) ---
+#     # Metrics: Post-Ant (mm)
+#     # Ticks: 150, 100, 50, 0, -50, -100, -150, -200, -250 (Anterior -> Posterior)
+#     ax_left.set_xlim(150, -250)
+#     ax_left.set_xticks([150, 100, 50, 0, -50, -100, -150, -200, -250])
+#
+#     # Color xlabel based on mode
+#     xlabel_color = 'blue' if color_by == 'breast' else 'black'
+#     ax_left.set_xlabel("Post-Ant (mm)", color=xlabel_color, fontsize=12)
+#     ax_left.set_ylabel("Inf-Sup (mm)", fontsize=12)
+#
+#     # Spine Config: Shared Central Axis Effect
+#     ax_left.spines['right'].set_position(('data', 0))
+#     ax_left.spines['left'].set_visible(False)
+#     ax_left.spines['top'].set_visible(False)
+#     ax_left.spines['bottom'].set_visible(True)
+#     ax_left.spines['right'].set_color('black')
+#     ax_left.spines['right'].set_linewidth(1)
+#
+#     # Origin and Grid
+#     ax_left.plot(0, 0, 'ko', markersize=6, zorder=10)
+#     ax_left.grid(True, linestyle='--', alpha=0.5)
+#     ax_left.set_aspect('equal', adjustable='box')
+#
+#     # Initialize colorbar placeholder for left plot
+#     scatter_left_for_colorbar = None
+#
+#     # Plot Logic for Right Breast on Left Plot
+#     if len(base_right) > 0:
+#         if color_by == 'dts' and dts_right is not None:
+#             # Color by DTS
+#             norm = plt.Normalize(vmin=0, vmax=40)
+#             cmap_dts = plt.cm.viridis
+#             colors_right = cmap_dts(norm(dts_right))
+#
+#             for i in range(len(base_right)):
+#                 ax_left.quiver(
+#                     base_right[i, 1], base_right[i, 2],
+#                     vec_right[i, 1], vec_right[i, 2],
+#                     angles='xy', scale_units='xy', scale=1,
+#                     color=colors_right[i],
+#                     width=0.003, headwidth=3, alpha=0.7
+#                 )
+#
+#             scatter_left_for_colorbar = ax_left.scatter(
+#                 base_right[:, 1], base_right[:, 2],
+#                 c=dts_right, cmap='viridis', s=20, vmin=0, vmax=40, zorder=5
+#             )
+#
+#         elif color_by == 'subject' and vl_ids_right is not None:
+#             # Color by subject
+#             for i in range(len(base_right)):
+#                 color = subject_color_map.get(vl_ids_right[i], 'blue')
+#                 ax_left.quiver(
+#                     base_right[i, 1], base_right[i, 2],
+#                     vec_right[i, 1], vec_right[i, 2],
+#                     angles='xy', scale_units='xy', scale=1,
+#                     color=color, width=0.003, headwidth=3, alpha=0.7
+#                 )
+#                 ax_left.scatter(
+#                     base_right[i, 1], base_right[i, 2],
+#                     c=[color], s=20, zorder=5
+#                 )
+#         else:
+#             # Default: Blue
+#             ax_left.quiver(
+#                 base_right[:, 1], base_right[:, 2],
+#                 vec_right[:, 1], vec_right[:, 2],
+#                 angles='xy', scale_units='xy', scale=1,
+#                 color='blue', width=0.003, headwidth=3, alpha=0.6
+#             )
+#             ax_left.scatter(base_right[:, 1], base_right[:, 2], c='blue', s=10, alpha=0.6)
+#
+#     # Add breast label (always shown for clarity)
+#     label_color = 'blue' if color_by == 'breast' else 'black'
+#     # Place label in upper portion with optimal positioning and styling for scientific presentation
+#     ax_left.text(0, ylim_val*0.82, "Right Breast", ha='center', va='center',
+#                 color=label_color, fontsize=14,
+#                 bbox=dict(boxstyle='round,pad=0.6', facecolor='white',
+#                          edgecolor=label_color, alpha=0.9, linewidth=0,
+#                 zorder=100)) # High zorder ensures text appears on top of data
+#
+#     # --- RIGHT PLOT (LEFT BREAST) ---
+#     # Metrics: Ant-Post (mm)
+#     # Ticks: -250, -200, ..., 150 (Posterior -> Anterior)
+#     ax_right.set_xlim(-250, 150)
+#     ax_right.set_xticks(np.arange(-250, 151, 50))
+#
+#     # Color xlabel based on mode
+#     xlabel_color = 'green' if color_by == 'breast' else 'black'
+#     ax_right.set_xlabel("Ant-Post (mm)", color=xlabel_color, fontsize=12)
+#
+#     # Move left spine to x=0
+#     ax_right.spines['left'].set_position(('data', 0))
+#     ax_right.spines['right'].set_visible(False)
+#     ax_right.spines['top'].set_visible(False)
+#     ax_right.spines['bottom'].set_visible(True)
+#     ax_right.spines['left'].set_color('black')
+#     ax_right.spines['left'].set_linewidth(1)
+#
+#     # Origin and Grid
+#     ax_right.plot(0, 0, 'ko', markersize=6, zorder=10)
+#     ax_right.grid(True, linestyle='--', alpha=0.5)
+#     ax_right.set_aspect('equal', adjustable='box')
+#
+#     # Initialize colorbar placeholder for right plot
+#     scatter_right_for_colorbar = None
+#
+#     # Plot Logic for Left Breast on Right Plot
+#     if len(base_left) > 0:
+#         if color_by == 'dts' and dts_left is not None:
+#             # Color by DTS
+#             norm = plt.Normalize(vmin=0, vmax=40)
+#             cmap_dts = plt.cm.viridis
+#             colors_left = cmap_dts(norm(dts_left))
+#
+#             for i in range(len(base_left)):
+#                 ax_right.quiver(
+#                     base_left[i, 1], base_left[i, 2],
+#                     vec_left[i, 1], vec_left[i, 2],
+#                     angles='xy', scale_units='xy', scale=1,
+#                     color=colors_left[i],
+#                     width=0.003, headwidth=3, alpha=0.7
+#                 )
+#
+#             scatter_right_for_colorbar = ax_right.scatter(
+#                 base_left[:, 1], base_left[:, 2],
+#                 c=dts_left, cmap='viridis', s=20, vmin=0, vmax=40, zorder=5
+#             )
+#
+#         elif color_by == 'subject' and vl_ids_left is not None:
+#             # Color by subject
+#             for i in range(len(base_left)):
+#                 color = subject_color_map.get(vl_ids_left[i], 'green')
+#                 ax_right.quiver(
+#                     base_left[i, 1], base_left[i, 2],
+#                     vec_left[i, 1], vec_left[i, 2],
+#                     angles='xy', scale_units='xy', scale=1,
+#                     color=color, width=0.003, headwidth=3, alpha=0.7
+#                 )
+#                 ax_right.scatter(
+#                     base_left[i, 1], base_left[i, 2],
+#                     c=[color], s=20, zorder=5
+#                 )
+#         else:
+#             # Default: Green
+#             ax_right.quiver(
+#                 base_left[:, 1], base_left[:, 2],
+#                 vec_left[:, 1], vec_left[:, 2],
+#                 angles='xy', scale_units='xy', scale=1,
+#                 color='green', width=0.003, headwidth=3, alpha=0.6
+#             )
+#             ax_right.scatter(base_left[:, 1], base_left[:, 2], c='green', s=10, alpha=0.6)
+#
+#     # Add breast label (always shown for clarity)
+#     label_color = 'green' if color_by == 'breast' else 'black'
+#     # Place label in upper portion with optimal positioning and styling for scientific presentation
+#     ax_right.text(0, ylim_val*0.82, "Left Breast", ha='center', va='center',
+#                  color=label_color, fontsize=14,
+#                  bbox=dict(boxstyle='round,pad=0.6', facecolor='white',
+#                           edgecolor=label_color, alpha=0.9, linewidth=0),
+#                  zorder=100)  # High zorder ensures text appears on top of data
+#
+#     # Add colorbar for DTS coloring
+#     if color_by == 'dts':
+#         # Use the scatter from either plot that has data
+#         scatter_for_cbar = scatter_right_for_colorbar if scatter_right_for_colorbar is not None else scatter_left_for_colorbar
+#         if scatter_for_cbar is not None:
+#             # Add colorbar on the right side
+#             cbar = plt.colorbar(scatter_for_cbar, ax=ax_right, pad=0.02)
+#             cbar.set_label('DTS (mm)', rotation=270, labelpad=15, fontsize=12)
+#
+#     # Create filename based on coloring scheme
+#     if color_by == 'dts':
+#         filename = "Vectors_rel_sternum_sagittal_dual_DTS.png"
+#     elif color_by == 'subject':
+#         filename = "Vectors_rel_sternum_sagittal_dual_by_subject.png"
+#     else:
+#         filename = "Vectors_rel_sternum_sagittal_dual.png"
+#
+#     save_path = Path("..") / "output" / "figs" / "v5" / "landmark vectors" / filename
+#     save_path.parent.mkdir(parents=True, exist_ok=True)
+#     plt.savefig(save_path, dpi=300)
+#     print(f"Saved: {save_path}")
+#     plt.show()
+#     plt.close(fig)
+#     print(f"✓ Completed dual sagittal plot with '{color_by}' coloring")
 
 
 def plot_nipple_relative_landmarks(
@@ -1886,7 +2142,7 @@ def analyse_clock_position_rotation(df_ave, base_left=None, base_right=None, vec
     print("="*80)
 
     if save_dir is None:
-        save_dir = Path("..") / "output" / "figs" / "clock_analysis"
+        save_dir = Path("..") / "output" / "figs" / "v5" / "clock_analysis"
     save_dir = Path(save_dir)
     save_dir.mkdir(parents=True, exist_ok=True)
 
@@ -2101,7 +2357,7 @@ def analyse_clock_position_rotation(df_ave, base_left=None, base_right=None, vec
         ax.set_xticks(np.radians(np.arange(0, 360, 30)))
         ax.set_xticklabels(['12', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11'])
         ax.set_title(f'{breast_side} Breast: Clock Position Frequency (Half-Hour Bins)',
-                    fontweight='bold', pad=20, fontsize=14)
+                    pad=20, fontsize=14)
         ax.legend(loc='upper right', bbox_to_anchor=(1.15, 1.1), fontsize=11)
 
         # Save
@@ -2199,7 +2455,7 @@ def analyse_clock_position_rotation(df_ave, base_left=None, base_right=None, vec
 
         ax1.set_ylabel('Distance from Nipple (mm)', labelpad=30)
         ax1.set_title(f'{breast_side} Breast: Prone→Supine Shift\n(Individual Landmarks)',
-                     fontsize=12, fontweight='bold', pad=20)
+                     fontsize=12, pad=20)
         ax1.legend(loc='upper right', bbox_to_anchor=(1.3, 1.1))
         ax1.grid(True, alpha=0.3)
 
@@ -2222,22 +2478,22 @@ def analyse_clock_position_rotation(df_ave, base_left=None, base_right=None, vec
         ax2.scatter(theta_prone, r_prone, c='lightblue', s=30, alpha=0.3, zorder=3)
         ax2.scatter(theta_supine, r_supine, c='lightcoral', s=30, alpha=0.3, zorder=3)
 
-        # Plot mean trajectory (bold)
+        # Plot mean trajectory
         ax2.plot([mean_theta_prone, mean_theta_supine],
                 [mean_r_prone, mean_r_supine],
                 'black', linewidth=3, zorder=10)
-        ax2.arrow(mean_theta_prone, mean_r_prone,
-                 mean_theta_supine - mean_theta_prone,
-                 mean_r_supine - mean_r_prone,
-                 head_width=0.2, head_length=5, fc='black', ec='black',
-                 linewidth=2, zorder=10)
+        ax2.annotate('',
+                    xy=(mean_theta_supine, mean_r_supine),  # Arrow head (end point)
+                    xytext=(mean_theta_prone, mean_r_prone),  # Arrow tail (start point)
+                    arrowprops=dict(arrowstyle='->', color='black', lw=2),
+                    zorder=10)
 
         # Plot mean points
         ax2.scatter([mean_theta_prone], [mean_r_prone], c='blue', s=200,
-                   marker='*', edgecolors='darkblue', linewidths=2,
+                   marker='*', edgecolors='darkblue', linewidths=1,
                    label='Mean Prone', zorder=11)
         ax2.scatter([mean_theta_supine], [mean_r_supine], c='red', s=200,
-                   marker='*', edgecolors='darkred', linewidths=2,
+                   marker='*', edgecolors='darkred', linewidths=1,
                    label='Mean Supine', zorder=11)
 
         ax2.set_xticks(np.radians(np.arange(0, 360, 30)))
@@ -2251,7 +2507,7 @@ def analyse_clock_position_rotation(df_ave, base_left=None, base_right=None, vec
 
         title_text = f'{breast_side} Breast: Mean Rotation\n'
         title_text += f'{direction}: {abs(mean_rotation_hours):.2f} hours ({abs(mean_rotation):.1f}°)'
-        ax2.set_title(title_text, fontsize=12, fontweight='bold', pad=20)
+        ax2.set_title(title_text, fontsize=12, pad=20)
         ax2.legend(loc='upper right', bbox_to_anchor=(1.3, 1.1))
         ax2.grid(True, alpha=0.3)
 
@@ -2269,7 +2525,7 @@ def analyse_clock_position_rotation(df_ave, base_left=None, base_right=None, vec
     # Right breast on LEFT subplot, Left breast on RIGHT subplot
     if len(df_left) > 0 and len(df_right) > 0:
         print("\nGenerating combined polar plot with individual points...")
-        fig, (ax_left, ax_right) = plt.subplots(1, 2, figsize=(14, 7), subplot_kw=dict(projection='polar'))
+        fig, (ax_left, ax_right) = plt.subplots(1, 2, figsize=(14, 6), subplot_kw=dict(projection='polar'))
 
         # LEFT SUBPLOT: RIGHT BREAST
         ax_left.set_theta_zero_location('N')
@@ -2284,13 +2540,11 @@ def analyse_clock_position_rotation(df_ave, base_left=None, base_right=None, vec
         for i in range(len(df_right)):
             ax_left.plot([theta_prone_r[i], theta_supine_r[i]],
                         [r_prone_r[i], r_supine_r[i]],
-                        'gray', alpha=0.2, linewidth=0.8)
+                        'gray', alpha=0.3, linewidth=1)
 
         # Plot individual points
-        ax_left.scatter(theta_prone_r, r_prone_r, c='lightblue', s=40, alpha=0.4,
-                       label='Prone', zorder=3, edgecolors='blue', linewidths=0.5)
-        ax_left.scatter(theta_supine_r, r_supine_r, c='lightcoral', s=40, alpha=0.4,
-                       label='Supine', zorder=3, edgecolors='red', linewidths=0.5)
+        ax_left.scatter(theta_prone_r, r_prone_r, c='lightblue', s=30, alpha=0.3, zorder=3)
+        ax_left.scatter(theta_supine_r, r_supine_r, c='lightcoral', s=30, alpha=0.3, zorder=3)
 
         # Mean trajectory - use circular mean for angles
         mean_theta_prone_r = circular_mean_angle(theta_prone_r)
@@ -2300,11 +2554,20 @@ def analyse_clock_position_rotation(df_ave, base_left=None, base_right=None, vec
 
         ax_left.plot([mean_theta_prone_r, mean_theta_supine_r],
                     [mean_r_prone_r, mean_r_supine_r],
-                    'green', linewidth=4, zorder=10, label='Mean Shift')
-        ax_left.scatter([mean_theta_prone_r], [mean_r_prone_r], c='blue', s=250,
-                       marker='*', edgecolors='darkblue', linewidths=2, zorder=11)
-        ax_left.scatter([mean_theta_supine_r], [mean_r_supine_r], c='red', s=250,
-                       marker='*', edgecolors='darkred', linewidths=2, zorder=11)
+                    'black', linewidth=2, zorder=10)
+        ax_left.annotate('',
+                        xy=(mean_theta_supine_r, mean_r_supine_r),
+                        xytext=(mean_theta_prone_r, mean_r_prone_r),
+                        arrowprops=dict(arrowstyle='->', color='black', lw=2),
+                        zorder=10)
+
+        # Plot mean points
+        ax_left.scatter([mean_theta_prone_r], [mean_r_prone_r], c='blue', s=200,
+                       marker='*', edgecolors='darkblue', linewidths=1,
+                       label='Mean Prone', zorder=11)
+        ax_left.scatter([mean_theta_supine_r], [mean_r_supine_r], c='red', s=200,
+                       marker='*', edgecolors='darkred', linewidths=1,
+                       label='Mean Supine', zorder=11)
 
         ax_left.set_xticks(np.radians(np.arange(0, 360, 30)))
         ax_left.set_xticklabels(['12', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11'])
@@ -2312,11 +2575,12 @@ def analyse_clock_position_rotation(df_ave, base_left=None, base_right=None, vec
 
         mean_rotation_r = df_right['angle_rotation'].mean()
         mean_rotation_hours_r = df_right['clock_rotation'].mean()
-        direction_r = "CW" if mean_rotation_r > 0 else "CCW"
+        direction_r = "Clockwise" if mean_rotation_r > 0 else "Counterclockwise"
 
-        ax_left.set_title(f'Right Breast\n{direction_r}: {abs(mean_rotation_hours_r):.2f}h ({abs(mean_rotation_r):.1f}°)',
-                         fontsize=13, fontweight='bold', color='blue', pad=20)
-        ax_left.legend(loc='upper left', bbox_to_anchor=(0, 1.15), fontsize=10, ncol=2)
+        ax_left.set_title(
+            f'Landmarks in right breast\n{direction_r}: {abs(mean_rotation_hours_r):.2f}h ({abs(mean_rotation_r):.1f}°)',
+            fontsize=12, color='black', pad=20)
+        ax_left.legend(loc='upper right', bbox_to_anchor=(1.3, 1.1), fontsize=10, ncol=1)
         ax_left.grid(True, alpha=0.3)
 
         # RIGHT SUBPLOT: LEFT BREAST
@@ -2332,13 +2596,11 @@ def analyse_clock_position_rotation(df_ave, base_left=None, base_right=None, vec
         for i in range(len(df_left)):
             ax_right.plot([theta_prone_l[i], theta_supine_l[i]],
                          [r_prone_l[i], r_supine_l[i]],
-                         'gray', alpha=0.2, linewidth=0.8)
+                         'gray', alpha=0.3, linewidth=1)
 
         # Plot individual points
-        ax_right.scatter(theta_prone_l, r_prone_l, c='lightblue', s=40, alpha=0.4,
-                        label='Prone', zorder=3, edgecolors='blue', linewidths=0.5)
-        ax_right.scatter(theta_supine_l, r_supine_l, c='lightcoral', s=40, alpha=0.4,
-                        label='Supine', zorder=3, edgecolors='red', linewidths=0.5)
+        ax_right.scatter(theta_prone_l, r_prone_l, c='lightblue', s=30, alpha=0.3, zorder=3)
+        ax_right.scatter(theta_supine_l, r_supine_l, c='lightcoral', s=30, alpha=0.3, zorder=3)
 
         # Mean trajectory - use circular mean for angles
         mean_theta_prone_l = circular_mean_angle(theta_prone_l)
@@ -2347,12 +2609,19 @@ def analyse_clock_position_rotation(df_ave, base_left=None, base_right=None, vec
         mean_r_supine_l = df_left['distance_supine'].mean()
 
         ax_right.plot([mean_theta_prone_l, mean_theta_supine_l],
-                     [mean_r_prone_l, mean_r_supine_l],
-                     'green', linewidth=4, zorder=10, label='Mean Shift')
-        ax_right.scatter([mean_theta_prone_l], [mean_r_prone_l], c='blue', s=250,
-                        marker='*', edgecolors='darkblue', linewidths=2, zorder=11)
-        ax_right.scatter([mean_theta_supine_l], [mean_r_supine_l], c='red', s=250,
-                        marker='*', edgecolors='darkred', linewidths=2, zorder=11)
+                      [mean_r_prone_l, mean_r_supine_l],
+                      'black', linewidth=2, zorder=10)
+        ax_right.annotate('',
+                          xy=(mean_theta_supine_l, mean_r_supine_l),
+                          xytext=(mean_theta_prone_l, mean_r_prone_l),
+                          arrowprops=dict(arrowstyle='->', color='black', lw=2),
+                          zorder=10)
+        ax_right.scatter([mean_theta_prone_l], [mean_r_prone_l], c='blue', s=200,
+                         marker='*', edgecolors='darkblue', linewidths=1,
+                         label='Mean Prone', zorder=11)
+        ax_right.scatter([mean_theta_supine_l], [mean_r_supine_l], c='red', s=200,
+                         marker='*', edgecolors='darkred', linewidths=1,
+                         label='Mean Supine', zorder=11)
 
         ax_right.set_xticks(np.radians(np.arange(0, 360, 30)))
         ax_right.set_xticklabels(['12', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11'])
@@ -2360,16 +2629,15 @@ def analyse_clock_position_rotation(df_ave, base_left=None, base_right=None, vec
 
         mean_rotation_l = df_left['angle_rotation'].mean()
         mean_rotation_hours_l = df_left['clock_rotation'].mean()
-        direction_l = "CW" if mean_rotation_l > 0 else "CCW"
+        direction_l = "Clockwise" if mean_rotation_l > 0 else "Counterclockwise"
 
-        ax_right.set_title(f'Left Breast\n{direction_l}: {abs(mean_rotation_hours_l):.2f}h ({abs(mean_rotation_l):.1f}°)',
-                          fontsize=13, fontweight='bold', color='green', pad=20)
-        ax_right.legend(loc='upper right', bbox_to_anchor=(1, 1.15), fontsize=10, ncol=2)
+        ax_right.set_title(
+            f'Landmarks in left breast: \n{direction_l}: {abs(mean_rotation_hours_l):.2f}h ({abs(mean_rotation_l):.1f}°)',
+            fontsize=12, pad=20)
+        ax_right.legend(loc='upper right', bbox_to_anchor=(1.3, 1.1), fontsize=10, ncol=1)
         ax_right.grid(True, alpha=0.3)
 
-        plt.suptitle('Clock Position Rotation: Individual Landmarks\nProne → Supine Position Change',
-                    fontsize=15, fontweight='bold', y=0.98)
-        plt.tight_layout(rect=[0, 0, 1, 0.96])
+        plt.tight_layout()
 
         save_path = save_dir / "clock_rotation_comparison_individual.png"
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
@@ -2378,98 +2646,66 @@ def analyse_clock_position_rotation(df_ave, base_left=None, base_right=None, vec
         plt.close()
 
         # ========================================================================
-        # Create MEAN-ONLY comparison plot
+        # Create INDIVIDUAL LANDMARKS ONLY comparison plot (no mean overlay)
         # Right breast on LEFT subplot, Left breast on RIGHT subplot
         # ========================================================================
-        print("Generating combined polar plot with mean values only...")
-        fig_mean, (ax_left_mean, ax_right_mean) = plt.subplots(1, 2, figsize=(14, 7),
-                                                                 subplot_kw=dict(projection='polar'))
+        print("Generating combined polar plot with individual landmarks only (no mean)...")
+        fig_indiv, (ax_left_indiv, ax_right_indiv) = plt.subplots(1, 2, figsize=(14, 6),
+                                                                  subplot_kw=dict(projection='polar'))
 
-        # LEFT SUBPLOT: RIGHT BREAST MEAN
-        ax_left_mean.set_theta_zero_location('N')
-        ax_left_mean.set_theta_direction(-1)
-        ax_left_mean.set_ylim(0, 120)
+        # LEFT SUBPLOT: RIGHT BREAST INDIVIDUAL LANDMARKS ONLY
+        ax_left_indiv.set_theta_zero_location('N')
+        ax_left_indiv.set_theta_direction(-1)
 
-        # Plot mean trajectory with arrow
-        ax_left_mean.plot([mean_theta_prone_r, mean_theta_supine_r],
-                         [mean_r_prone_r, mean_r_supine_r],
-                         'green', linewidth=6, zorder=10, label='Mean Shift')
-        ax_left_mean.scatter([mean_theta_prone_r], [mean_r_prone_r], c='blue', s=400,
-                            marker='*', edgecolors='darkblue', linewidths=3,
-                            label='Mean Prone', zorder=11)
-        ax_left_mean.scatter([mean_theta_supine_r], [mean_r_supine_r], c='red', s=400,
-                            marker='*', edgecolors='darkred', linewidths=3,
-                            label='Mean Supine', zorder=11)
+        # Plot all trajectories for right breast
+        for i in range(len(df_right)):
+            ax_left_indiv.plot([theta_prone_r[i], theta_supine_r[i]],
+                               [r_prone_r[i], r_supine_r[i]],
+                               'gray', alpha=0.3, linewidth=1)
 
-        # Add directional arrow
-        ax_left_mean.annotate('', xy=(mean_theta_supine_r, mean_r_supine_r),
-                             xytext=(mean_theta_prone_r, mean_r_prone_r),
-                             arrowprops=dict(arrowstyle='->', lw=5, color='green'))
+        # Plot individual points for right breast
+        ax_left_indiv.scatter(theta_prone_r, r_prone_r, c='blue', s=50, alpha=0.6,
+                              label='Prone', zorder=5, edgecolors='darkblue')
+        ax_left_indiv.scatter(theta_supine_r, r_supine_r, c='red', s=50, alpha=0.6,
+                              label='Supine', zorder=5, edgecolors='darkred')
 
-        # Add text annotations
-        ax_left_mean.text(mean_theta_prone_r, mean_r_prone_r + 10,
-                         f'Prone\n{np.degrees(mean_theta_prone_r):.0f}°',
-                         ha='center', fontsize=10, color='blue', fontweight='bold',
-                         bbox=dict(boxstyle='round,pad=0.4', facecolor='white', alpha=0.9))
-        ax_left_mean.text(mean_theta_supine_r, mean_r_supine_r + 10,
-                         f'Supine\n{np.degrees(mean_theta_supine_r):.0f}°',
-                         ha='center', fontsize=10, color='red', fontweight='bold',
-                         bbox=dict(boxstyle='round,pad=0.4', facecolor='white', alpha=0.9))
+        ax_left_indiv.set_xticks(np.radians(np.arange(0, 360, 30)))
+        ax_left_indiv.set_xticklabels(['12', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11'])
+        ax_left_indiv.set_ylabel('Distance from Nipple (mm)', labelpad=30)
+        ax_left_indiv.set_title(f'Right Breast: Prone->Supine Shift\n(n={len(df_right)} landmarks)',
+                                fontsize=12, pad=20)
+        ax_left_indiv.legend(loc='upper right', bbox_to_anchor=(1.3, 1.1))
+        ax_left_indiv.grid(True, alpha=0.3)
 
-        ax_left_mean.set_xticks(np.radians(np.arange(0, 360, 30)))
-        ax_left_mean.set_xticklabels(['12', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11'])
-        ax_left_mean.set_ylabel('Distance from Nipple (mm)', labelpad=35, fontsize=12)
-        ax_left_mean.set_title(f'Right Breast (Mean)\n{direction_r}: {abs(mean_rotation_hours_r):.2f}h ({abs(mean_rotation_r):.1f}°)',
-                              fontsize=13, fontweight='bold', color='blue', pad=20)
-        ax_left_mean.legend(loc='upper left', bbox_to_anchor=(0, 1.15), fontsize=11)
-        ax_left_mean.grid(True, alpha=0.3)
+        # RIGHT SUBPLOT: LEFT BREAST INDIVIDUAL LANDMARKS ONLY
+        ax_right_indiv.set_theta_zero_location('N')
+        ax_right_indiv.set_theta_direction(-1)
 
-        # RIGHT SUBPLOT: LEFT BREAST MEAN
-        ax_right_mean.set_theta_zero_location('N')
-        ax_right_mean.set_theta_direction(-1)
-        ax_right_mean.set_ylim(0, 120)
+        # Plot all trajectories for left breast
+        for i in range(len(df_left)):
+            ax_right_indiv.plot([theta_prone_l[i], theta_supine_l[i]],
+                                [r_prone_l[i], r_supine_l[i]],
+                                'gray', alpha=0.3, linewidth=1)
 
-        # Plot mean trajectory with arrow
-        ax_right_mean.plot([mean_theta_prone_l, mean_theta_supine_l],
-                          [mean_r_prone_l, mean_r_supine_l],
-                          'green', linewidth=6, zorder=10, label='Mean Shift')
-        ax_right_mean.scatter([mean_theta_prone_l], [mean_r_prone_l], c='blue', s=400,
-                             marker='*', edgecolors='darkblue', linewidths=3,
-                             label='Mean Prone', zorder=11)
-        ax_right_mean.scatter([mean_theta_supine_l], [mean_r_supine_l], c='red', s=400,
-                             marker='*', edgecolors='darkred', linewidths=3,
-                             label='Mean Supine', zorder=11)
+        # Plot individual points for left breast
+        ax_right_indiv.scatter(theta_prone_l, r_prone_l, c='blue', s=50, alpha=0.6,
+                               label='Prone', zorder=5, edgecolors='darkblue')
+        ax_right_indiv.scatter(theta_supine_l, r_supine_l, c='red', s=50, alpha=0.6,
+                               label='Supine', zorder=5, edgecolors='darkred')
 
-        # Add directional arrow
-        ax_right_mean.annotate('', xy=(mean_theta_supine_l, mean_r_supine_l),
-                              xytext=(mean_theta_prone_l, mean_r_prone_l),
-                              arrowprops=dict(arrowstyle='->', lw=5, color='green'))
+        ax_right_indiv.set_xticks(np.radians(np.arange(0, 360, 30)))
+        ax_right_indiv.set_xticklabels(['12', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11'])
+        ax_right_indiv.set_ylabel('Distance from Nipple (mm)', labelpad=30)
+        ax_right_indiv.set_title(f'Left Breast: Prone->Supine Shift\n(n={len(df_left)} landmarks)',
+                                 fontsize=12, pad=20)
+        ax_right_indiv.legend(loc='upper right', bbox_to_anchor=(1.3, 1.1))
+        ax_right_indiv.grid(True, alpha=0.3)
 
-        # Add text annotations
-        ax_right_mean.text(mean_theta_prone_l, mean_r_prone_l + 10,
-                          f'Prone\n{np.degrees(mean_theta_prone_l):.0f}°',
-                          ha='center', fontsize=10, color='blue', fontweight='bold',
-                          bbox=dict(boxstyle='round,pad=0.4', facecolor='white', alpha=0.9))
-        ax_right_mean.text(mean_theta_supine_l, mean_r_supine_l + 10,
-                          f'Supine\n{np.degrees(mean_theta_supine_l):.0f}°',
-                          ha='center', fontsize=10, color='red', fontweight='bold',
-                          bbox=dict(boxstyle='round,pad=0.4', facecolor='white', alpha=0.9))
+        plt.tight_layout()
 
-        ax_right_mean.set_xticks(np.radians(np.arange(0, 360, 30)))
-        ax_right_mean.set_xticklabels(['12', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11'])
-        ax_right_mean.set_ylabel('Distance from Nipple (mm)', labelpad=35, fontsize=12)
-        ax_right_mean.set_title(f'Left Breast (Mean)\n{direction_l}: {abs(mean_rotation_hours_l):.2f}h ({abs(mean_rotation_l):.1f}°)',
-                               fontsize=13, fontweight='bold', color='green', pad=20)
-        ax_right_mean.legend(loc='upper right', bbox_to_anchor=(1, 1.15), fontsize=11)
-        ax_right_mean.grid(True, alpha=0.3)
-
-        plt.suptitle('Clock Position Rotation: Mean Values Only\nProne → Supine Position Change',
-                    fontsize=15, fontweight='bold', y=0.98)
-        plt.tight_layout(rect=[0, 0, 1, 0.96])
-
-        save_path_mean = save_dir / "clock_rotation_comparison_mean.png"
-        plt.savefig(save_path_mean, dpi=300, bbox_inches='tight')
-        print(f"Saved comparison plot (mean only): {save_path_mean}")
+        save_path_indiv = save_dir / "clock_rotation_individual_landmarks_only.png"
+        plt.savefig(save_path_indiv, dpi=300, bbox_inches='tight')
+        print(f"Saved comparison plot (individual landmarks only): {save_path_indiv}")
         plt.show()
         plt.close()
 
@@ -2500,6 +2736,397 @@ def analyse_clock_position_rotation(df_ave, base_left=None, base_right=None, vec
         }
 
     return summary
+
+
+
+def plot_3panel_anatomical_views(df_ave, save_path=None):
+    """
+    Create a 3-panel figure showing nipple motion from prone to supine
+    in three anatomical views (Coronal, Sagittal, Axial), all relative to sternum.
+
+    Visual encoding (Grammar of Graphics):
+    - Color = Subject Identity (unique hue per patient)
+    - Shape = Triangle for Nipple
+    - Fill Style = State (Hollow: Prone, Filled: Supine)
+    - Arrow = Motion trajectory from prone to supine
+
+    Args:
+        df_ave: DataFrame with landmark and nipple position data
+        save_path: Path to save the figure (default: ../output/figs/nipple_displacement_3panel.png)
+    """
+    print("\n" + "="*80)
+    print("GENERATING 3-PANEL ANATOMICAL VIEWS FIGURE")
+    print("="*80)
+
+    # Get unique subjects and assign colors
+    unique_subjects = df_ave['VL_ID'].unique()
+    n_subjects = len(unique_subjects)
+    cmap = plt.cm.get_cmap('tab20', n_subjects)
+    subject_colors = {subj: cmap(i) for i, subj in enumerate(unique_subjects)}
+
+    # Separate left and right breasts
+    df_left = df_ave[df_ave['landmark side (prone)'] == 'LB'].copy()
+    df_right = df_ave[df_ave['landmark side (prone)'] == 'RB'].copy()
+
+    if len(df_left) == 0 and len(df_right) == 0:
+        print("No data available")
+        return
+
+    # ========================================================================
+    # PREPARE DATA: Extract landmark and nipple positions relative to sternum
+    # ========================================================================
+
+    def get_positions_rel_sternum(df, side='left'):
+        """Extract landmark and nipple positions relative to sternum.
+        """
+        if len(df) == 0:
+            return None
+
+        # Sternum columns
+        sternum_prone_x = df['sternum superior prone transformed x'].values
+        sternum_prone_y = df['sternum superior prone transformed y'].values
+        sternum_prone_z = df['sternum superior prone transformed z'].values
+        sternum_supine_x = df['sternum superior supine x'].values
+        sternum_supine_y = df['sternum superior supine y'].values
+        sternum_supine_z = df['sternum superior supine z'].values
+
+        # Landmark positions (already relative to sternum)
+        lm_prone_x = df['landmark ave prone transformed x'].values
+        lm_prone_y = df['landmark ave prone transformed y'].values
+        lm_prone_z = df['landmark ave prone transformed z'].values
+        lm_supine_x = df['landmark ave supine x'].values
+        lm_supine_y = df['landmark ave supine y'].values
+        lm_supine_z = df['landmark ave supine z'].values
+
+        # Get nipple columns based on side
+        if side == 'left':
+            nipple_prone_x_raw = df['left nipple prone transformed x'].values
+            nipple_prone_y_raw = df['left nipple prone transformed y'].values
+            nipple_prone_z_raw = df['left nipple prone transformed z'].values
+            nipple_supine_x_raw = df['left nipple supine x'].values
+            nipple_supine_y_raw = df['left nipple supine y'].values
+            nipple_supine_z_raw = df['left nipple supine z'].values
+        else:
+            nipple_prone_x_raw = df['right nipple prone transformed x'].values
+            nipple_prone_y_raw = df['right nipple prone transformed y'].values
+            nipple_prone_z_raw = df['right nipple prone transformed z'].values
+            nipple_supine_x_raw = df['right nipple supine x'].values
+            nipple_supine_y_raw = df['right nipple supine y'].values
+            nipple_supine_z_raw = df['right nipple supine z'].values
+
+        # Calculate nipple positions relative to sternum
+        nipple_prone_x = nipple_prone_x_raw - sternum_prone_x
+        nipple_prone_y = nipple_prone_y_raw - sternum_prone_y
+        nipple_prone_z = nipple_prone_z_raw - sternum_prone_z
+        nipple_supine_x = nipple_supine_x_raw - sternum_supine_x
+        nipple_supine_y = nipple_supine_y_raw - sternum_supine_y
+        nipple_supine_z = nipple_supine_z_raw - sternum_supine_z
+
+        return {
+            'vl_ids': df['VL_ID'].values,
+            'lm_prone': (lm_prone_x, lm_prone_y, lm_prone_z),
+            'lm_supine': (lm_supine_x, lm_supine_y, lm_supine_z),
+            'nipple_prone': (nipple_prone_x, nipple_prone_y, nipple_prone_z),
+            'nipple_supine': (nipple_supine_x, nipple_supine_y, nipple_supine_z),
+            'side': side
+        }
+
+    left_data = get_positions_rel_sternum(df_left, 'left')
+    right_data = get_positions_rel_sternum(df_right, 'right')
+
+    # ========================================================================
+    # CREATE 3-PANEL FIGURE
+    # ========================================================================
+    fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+
+    # Define view configurations
+    # Each view: (ax_index, x_coord_idx, y_coord_idx, xlabel, ylabel, title)
+    views = [
+        (0, 0, 2, 'Right-Left (mm)', 'Inf-Sup (mm)', 'Panel A: Coronal View'),      # X, Z
+        (1, 1, 2, 'Ant-Post (mm)', 'Inf-Sup (mm)', 'Panel B: Sagittal View'),       # Y, Z
+        (2, 0, 1, 'Right-Left (mm)', 'Ant-Post (mm)', 'Panel C: Axial View'),       # X, Y
+    ]
+
+    def plot_anatomy_on_ax(ax, data, coord_x_idx, coord_y_idx, subject_colors):
+        """Plot nipples with semantic encoding."""
+        if data is None:
+            return
+
+        vl_ids = data['vl_ids']
+        nipple_prone = data['nipple_prone']
+        nipple_supine = data['nipple_supine']
+
+        for i, vl_id in enumerate(vl_ids):
+            color = subject_colors.get(vl_id, 'gray')
+
+            # Nipple positions
+            np_px, np_py = nipple_prone[coord_x_idx][i], nipple_prone[coord_y_idx][i]
+            np_sx, np_sy = nipple_supine[coord_x_idx][i], nipple_supine[coord_y_idx][i]
+
+            # Skip if NaN
+            if np.isnan(np_px) or np.isnan(np_sx) or np.isnan(np_py) or np.isnan(np_sy):
+                continue
+
+            # --- NIPPLES (Triangles) ---
+            # Prone: Hollow triangle
+            ax.scatter(np_px, np_py, s=80, marker='^', facecolors='none',
+                      edgecolors=color, linewidths=1.5, zorder=6, alpha=0.8)
+            # Supine: Filled triangle
+            ax.scatter(np_sx, np_sy, s=80, marker='^', facecolors=color,
+                      edgecolors=color, linewidths=1.5, zorder=6, alpha=0.8)
+            # Arrow from prone to supine
+            dx, dy = np_sx - np_px, np_sy - np_py
+            if abs(dx) > 1 or abs(dy) > 1:
+                ax.annotate('', xy=(np_sx, np_sy), xytext=(np_px, np_py),
+                           arrowprops=dict(arrowstyle='->', color=color, lw=1.5,
+                                          alpha=0.6))
+
+    # Plot each view
+    for ax_idx, coord_x_idx, coord_y_idx, xlabel, ylabel, title in views:
+        ax = axes[ax_idx]
+
+        # Plot both breasts
+        plot_anatomy_on_ax(ax, left_data, coord_x_idx, coord_y_idx, subject_colors)
+        plot_anatomy_on_ax(ax, right_data, coord_x_idx, coord_y_idx, subject_colors)
+
+        # Mark sternum origin
+        ax.plot(0, 0, 'k+', markersize=12, markeredgewidth=2, zorder=10)
+        ax.axhline(y=0, color='gray', linewidth=0.5, linestyle=':', alpha=0.5)
+        ax.axvline(x=0, color='gray', linewidth=0.5, linestyle=':', alpha=0.5)
+
+        # Formatting
+        ax.set_xlabel(xlabel, fontsize=11)
+        ax.set_ylabel(ylabel, fontsize=11)
+        ax.set_title(title, fontsize=13, pad=10)
+        ax.set_aspect('equal')
+        ax.grid(True, linestyle='--', alpha=0.3)
+
+        # Set axis limits
+        ax.set_xlim(-250, 250)
+        ax.set_ylim(-200, 200)
+        ax.set_xticks(np.arange(-250, 251, 50))
+        ax.set_yticks(np.arange(-200, 201, 50))
+
+        # Add breast labels
+        ax.text(-120, 180, 'Right Breast', fontsize=10, ha='center', color='black',
+               bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.8))
+        ax.text(120, 180, 'Left Breast', fontsize=10, ha='center', color='black',
+               bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.8))
+
+    # ========================================================================
+    # CREATE DUAL LEGEND
+    # ========================================================================
+
+    # Legend 1: Shape/Fill meaning (State)
+    from matplotlib.lines import Line2D
+    legend_elements_shape = [
+        Line2D([0], [0], marker='^', color='w', markerfacecolor='none',
+               markeredgecolor='gray', markersize=10, markeredgewidth=2,
+               label='Nipple (Prone)', linestyle='None'),
+        Line2D([0], [0], marker='^', color='w', markerfacecolor='gray',
+               markeredgecolor='gray', markersize=10, markeredgewidth=2,
+               label='Nipple (Supine)', linestyle='None'),
+        Line2D([0], [0], color='gray', linestyle='-', linewidth=1.5,
+               label='Nipple motion'),
+    ]
+
+    # Add shape legend below the figure
+    fig.legend(handles=legend_elements_shape, loc='lower center', ncol=3,
+              fontsize=9, frameon=True, bbox_to_anchor=(0.5, -0.02))
+
+    # Legend 2: Subject colors (if not too many subjects)
+    if n_subjects <= 10:
+        legend_elements_subj = [
+            Line2D([0], [0], marker='s', color='w', markerfacecolor=subject_colors[subj],
+                   markersize=8, label=subj, linestyle='None')
+            for subj in sorted(unique_subjects)[:10]
+        ]
+        axes[2].legend(handles=legend_elements_subj, loc='upper right',
+                      fontsize=8, title='Subject', title_fontsize=9,
+                      bbox_to_anchor=(1.15, 1.0))
+
+    # Main title
+    fig.suptitle('Nipple Displacement: Prone -> Supine (Reference: Sternum)\n' +
+                f'n = {n_subjects} subjects',
+                fontsize=14, y=1.02)
+
+    plt.tight_layout(rect=[0, 0.05, 1, 0.98])
+
+    # Save
+    if save_path is None:
+        save_path = Path("..") / "output" / "figs" / "nipple_displacement_3panel.png"
+    save_path = Path(save_path)
+    save_path.parent.mkdir(parents=True, exist_ok=True)
+
+    plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    print(f"\n[OK] Saved 3-panel figure: {save_path}")
+    plt.show()
+    plt.close()
+
+    print("\n" + "="*80)
+    print("3-PANEL ANATOMICAL VIEWS FIGURE COMPLETE")
+    print("="*80)
+
+    return {
+        'n_landmarks': len(df_ave),
+        'n_subjects': n_subjects,
+        'n_left': len(df_left),
+        'n_right': len(df_right)
+    }
+
+
+
+
+
+def plot_anatomical_correlation_matrix(df):
+    """
+    Generates a correlation matrix to analyze the drivers of landmark displacement.
+    Calculates the 'Delta' (Change in Distance) for Skin, Ribs, and Nipple.
+
+    This analysis helps explain WHY landmarks moved, based on the biomechanics of
+    breast deformation (compression, sagging, and strain).
+
+    Args:
+        df: DataFrame with landmark displacement and distance measurements
+    """
+    print("\n" + "=" * 80)
+    print("ANATOMICAL CORRELATION MATRIX ANALYSIS")
+    print("=" * 80)
+    print("Analyzing biomechanical drivers of landmark displacement...")
+
+    # 1. Calculate Deltas (Supine - Prone)
+    # Negative Value = Landmark got CLOSER to the structure (Compression)
+    # Positive Value = Landmark moved AWAY from the structure (Expansion/Sag)
+    df = df.copy()
+    df['Delta_Skin']   = df['Distance to skin (supine) [mm]'] - df['Distance to skin (prone) [mm]']
+    df['Delta_Rib']    = df['Distance to rib cage (supine) [mm]'] - df['Distance to rib cage (prone) [mm]']
+    df['Delta_Nipple'] = df['Distance to nipple (supine) [mm]'] - df['Distance to nipple (prone) [mm]']
+
+    print(f"\nCalculated Deltas (Supine - Prone):")
+    print(f"  Delta_Skin:   Mean = {df['Delta_Skin'].mean():.2f} mm (SD = {df['Delta_Skin'].std():.2f})")
+    print(f"  Delta_Rib:    Mean = {df['Delta_Rib'].mean():.2f} mm (SD = {df['Delta_Rib'].std():.2f})")
+    print(f"  Delta_Nipple: Mean = {df['Delta_Nipple'].mean():.2f} mm (SD = {df['Delta_Nipple'].std():.2f})")
+
+    # 2. Select Variables for Correlation
+    # We correlate the 'Causes' (Anatomical Changes) with the 'Effects' (Displacement Vectors)
+    analysis_cols = [
+        # --- The Effects (Motion) ---
+        'Landmark displacement [mm]',      # Total Magnitude
+        'Landmark displacement vector vx', # X: Medial-Lateral
+        'Landmark displacement vector vy', # Y: Anterior-Posterior
+        'Landmark displacement vector vz', # Z: Superior-Inferior
+
+        # --- The Causes (Biomechanics) ---
+        'Delta_Rib',                       # Compression against chest?
+        'Delta_Skin',                      # Compression by skin?
+        'Delta_Nipple',                    # Tethers to nipple?
+        'Distance to rib cage (prone) [mm]'# Initial Depth (Pendulum effect)
+    ]
+
+    # Filter for existing columns only
+    valid_cols = [c for c in analysis_cols if c in df.columns]
+    missing_cols = [c for c in analysis_cols if c not in df.columns]
+
+    if missing_cols:
+        print(f"\nWarning: Missing columns: {missing_cols}")
+
+    print(f"\nAnalyzing correlations for {len(valid_cols)} variables:")
+    for col in valid_cols:
+        print(f"  - {col}")
+
+    corr_data = df[valid_cols].dropna()
+
+    if corr_data.empty:
+        print("\nError: Not enough data for correlation analysis.")
+        return
+
+    print(f"\nValid data points: {len(corr_data)} landmarks")
+
+    # 3. Calculate Correlation (Pearson)
+    corr_matrix = corr_data.corr()
+
+    # Print key correlations
+    print("\n" + "-" * 80)
+    print("KEY CORRELATIONS (with Total Displacement):")
+    print("-" * 80)
+    displacement_corr = corr_matrix['Landmark displacement [mm]'].sort_values(ascending=False)
+    for var, corr_val in displacement_corr.items():
+        if var != 'Landmark displacement [mm]':
+            if abs(corr_val) > 0.3:  # Moderate or stronger
+                strength = "Strong" if abs(corr_val) > 0.5 else "Moderate"
+                direction = "positive" if corr_val > 0 else "negative"
+                print(f"  {var:40s}: r = {corr_val:+.3f} ({strength} {direction})")
+
+    # 4. Plot Heatmap
+    fig, ax = plt.subplots(figsize=(12, 10))
+
+    # Create a mask to hide the upper triangle (optional, reduces visual clutter)
+    mask = np.triu(np.ones_like(corr_matrix, dtype=bool))
+
+    # Create custom labels for better readability
+    label_mapping = {
+        'Landmark displacement [mm]': 'Total Displacement',
+        'Landmark displacement vector vx': 'Displacement X (Med-Lat)',
+        'Landmark displacement vector vy': 'Displacement Y (Ant-Post)',
+        'Landmark displacement vector vz': 'Displacement Z (Inf-Sup)',
+        'Delta_Rib': 'Δ Distance to Rib',
+        'Delta_Skin': 'Δ Distance to Skin',
+        'Delta_Nipple': 'Δ Distance to Nipple',
+        'Distance to rib cage (prone) [mm]': 'Initial Depth (Prone)'
+    }
+
+    # Rename columns and index for display
+    display_matrix = corr_matrix.copy()
+    display_matrix.columns = [label_mapping.get(col, col) for col in display_matrix.columns]
+    display_matrix.index = [label_mapping.get(idx, idx) for idx in display_matrix.index]
+
+    sns.heatmap(display_matrix,
+                annot=True,         # Show the correlation coefficient numbers
+                fmt=".2f",          # 2 decimal places
+                cmap='coolwarm',    # Red (+), Blue (-), White (0)
+                center=0,           # Center color map at 0
+                square=True,        # Force square cells
+                linewidths=0.5,     # Grid lines
+                cbar_kws={"shrink": .8, "label": "Pearson Correlation (r)"},
+                mask=mask,          # Apply the triangular mask
+                ax=ax,
+                vmin=-1, vmax=1)    # Fix scale from -1 to +1
+
+    ax.set_title('Correlation Matrix: Anatomical Drivers vs. Landmark Displacement\n' +
+                'Biomechanical Analysis of Prone -> Supine Motion',
+                fontsize=14, fontweight='bold', pad=20)
+    plt.xticks(rotation=45, ha='right', fontsize=10)
+    plt.yticks(rotation=0, fontsize=10)
+
+    plt.tight_layout()
+
+    # Save figure
+    save_path = Path("..") / "output" / "figs" / "correlation_matrix_anatomical.png"
+    save_path.parent.mkdir(parents=True, exist_ok=True)
+    plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    print(f"\n[OK] Saved correlation matrix: {save_path}")
+
+    plt.show()
+    plt.close()
+
+    print("\n" + "=" * 80)
+    print("CORRELATION MATRIX ANALYSIS COMPLETE")
+    print("=" * 80)
+    print("\nInterpretation Guide:")
+    print("  • Red (+1.0): Strong positive correlation - variables increase together")
+    print("  • Blue (-1.0): Strong negative correlation - one increases as other decreases")
+    print("  • White (0.0): No correlation")
+    print("  • |r| > 0.5: Strong relationship")
+    print("  • |r| > 0.3: Moderate relationship")
+    print("  • |r| < 0.3: Weak relationship")
+    print("\nKey Questions Answered:")
+    print("  1. Does initial depth affect displacement? (Pendulum effect)")
+    print("  2. Are landmarks compressed toward ribs/skin?")
+    print("  3. Does nipple motion tether landmarks?")
+    print("  4. Which anatomical factors drive motion in each direction?")
+
+    return corr_matrix
+
 
 
 if __name__ == "__main__":
@@ -3064,14 +3691,17 @@ if __name__ == "__main__":
 
 
     # 2. Run the Vectors Relative to Sternum plotting function
-    plot_vectors_rel_sternum(df_ave, color_by='breast')
-    plot_vectors_rel_sternum(df_ave, color_by='subject')
-    plot_vectors_rel_sternum(df_ave, color_by='dts')
-    plot_sagittal_dual_axes(df_ave, color_by='breast')
-    plot_sagittal_dual_axes(df_ave, color_by='subject')
-    plot_sagittal_dual_axes(df_ave, color_by='dts')
+    plot_vectors_rel_sternum(df_ave, color_by='breast',data_type='landmarks', include_dual_sagittal=True)
+    plot_vectors_rel_sternum(df_ave, color_by='subject',data_type='landmarks', include_dual_sagittal=True)
+    plot_vectors_rel_sternum(df_ave, color_by='dts',data_type='landmarks', include_dual_sagittal=True)
+    plot_vectors_rel_sternum(df_ave, color_by='breast',data_type='nipples', include_dual_sagittal=True)
+    plot_vectors_rel_sternum(df_ave, color_by='subject',data_type='nipples', include_dual_sagittal=True)
+    plot_vectors_rel_sternum(df_ave, color_by='dts',data_type='nipples', include_dual_sagittal=True)
+    # plot_sagittal_dual_axes(df_ave, color_by='breast')
+    # plot_sagittal_dual_axes(df_ave, color_by='subject')
+    # plot_sagittal_dual_axes(df_ave, color_by='dts')
 
-    plot_vectors_for_vl81(df_ave)
+    # plot_vectors_for_vl81(df_ave)
     # 3. Run the Vectors Relative to Nipple plotting function (Intrinsic Deformation)
     # This plots landmark motion after subtracting the movement of the respective nipple.
     print("\n" + "=" * 50)
@@ -3079,7 +3709,7 @@ if __name__ == "__main__":
     print("=" * 50)
 
     # Define save directory
-    save_path = Path("..") / "output" /  "figs" / "landmark vectors" / "Vectors_rel_nipple"
+    save_path = Path("..") / "output" /  "figs" / "v5" / "landmark vectors" / "Vectors_rel_nipple"
 
     base_left, base_right, vec_left, vec_right, lm_disp_left, lm_disp_right, nipple_disp_left, nipple_disp_right =\
         plot_nipple_relative_landmarks(
@@ -3143,6 +3773,10 @@ if __name__ == "__main__":
 
     print("\n" + "=" * 80)
 
-    save_path = Path("..") / "output" /  "figs"
-    plot_3panel_displacement_mechanism(df_ave, save_path=None)
+    # save_path = Path("..") / "output" /  "figs"  / "v5"
+    # plot_3panel_anatomical_views(df_ave, save_path)
+
+    # Correlation matrix analysis
+    plot_anatomical_correlation_matrix(df_ave)
+
 
