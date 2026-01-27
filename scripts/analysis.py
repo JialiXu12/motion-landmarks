@@ -23,6 +23,8 @@ from pingouin import welch_anova, pairwise_gameshowell, rm_anova, pairwise_ttest
 
 from plot_nipple_relative_vectors import plot_nipple_relative_vectors
 
+from partial_correlation import test_partial_correlation
+
 
 OUTPUT_DIR = Path("../output")
 EXCEL_FILE_PATH = OUTPUT_DIR / "landmark_results_v5_2026_01_21.xlsx"
@@ -354,10 +356,10 @@ def perform_repeated_measures_analysis(df_input, subject_id_col, dv_cols):
             print("\nRM-ANOVA is not significant. No post-hoc tests needed.")
 
     except NotImplementedError as e:
-        print(f"\n⚠️ RM-ANOVA Skipped: {e}")
+        print(f"\n ! RM-ANOVA Skipped: {e}")
 
     except Exception as e:
-        print(f"\n⚠️ RM-ANOVA failed (Switching to Non-Parametric Friedman Test): {e}")
+        print(f"\n ! RM-ANOVA failed (Switching to Non-Parametric Friedman Test): {e}")
 
         # --- Non-Parametric Fallback (Friedman Test) ---
         print("\n" + "-" * 40)
@@ -3072,7 +3074,7 @@ def plot_anatomical_correlation_matrix(df):
         'Delta_Rib': 'Δ Distance to Rib',
         'Delta_Skin': 'Δ Distance to Skin',
         'Delta_Nipple': 'Δ Distance to Nipple',
-        'Distance to rib cage (prone) [mm]': 'Initial Depth (Prone)'
+        'Distance to rib cage (prone) [mm]': 'Initial Depth (Prone DTR)'
     }
 
     # Rename columns and index for display
@@ -3101,7 +3103,7 @@ def plot_anatomical_correlation_matrix(df):
     plt.tight_layout()
 
     # Save figure
-    save_path = Path("..") / "output" / "figs" / "correlation_matrix_anatomical.png"
+    save_path = Path("..") / "output" / "figs" / "v5"  / "correlation_matrix_anatomical.png"
     save_path.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(save_path, dpi=300, bbox_inches='tight')
     print(f"\n[OK] Saved correlation matrix: {save_path}")
@@ -3773,10 +3775,11 @@ if __name__ == "__main__":
 
     print("\n" + "=" * 80)
 
-    # save_path = Path("..") / "output" /  "figs"  / "v5"
+    save_path = Path("..") / "output" /  "figs"  / "v5"
     # plot_3panel_anatomical_views(df_ave, save_path)
 
     # Correlation matrix analysis
     plot_anatomical_correlation_matrix(df_ave)
 
+    test_partial_correlation(df_ave)
 
