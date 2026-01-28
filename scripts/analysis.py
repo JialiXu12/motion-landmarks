@@ -5,6 +5,8 @@ from pathlib import Path
 import pandas as pd
 import numpy as np
 from scipy import stats
+import sys
+from datetime import datetime
 
 # Plotting
 import matplotlib.pyplot as plt
@@ -26,8 +28,31 @@ from plot_nipple_relative_vectors import plot_nipple_relative_vectors
 from partial_correlation import test_partial_correlation
 
 
+# ------------------------------------------------------------------------------
+# LOGGING SETUP - Automatically save terminal output to file
+# ------------------------------------------------------------------------------
+class Tee:
+    """Write output to both console and file simultaneously."""
+    def __init__(self, filename):
+        self.terminal = sys.stdout
+        self.log = open(filename, 'w', encoding='utf-8')
+
+    def write(self, message):
+        self.terminal.write(message)
+        self.log.write(message)
+
+    def flush(self):
+        self.terminal.flush()
+        self.log.flush()
+
+    def close(self):
+        self.log.close()
+        sys.stdout = self.terminal
+
+
 OUTPUT_DIR = Path("../output")
 EXCEL_FILE_PATH = OUTPUT_DIR / "landmark_results_v5_2026_01_21.xlsx"
+LOG_FILE_PATH = OUTPUT_DIR / f"analysis_output_{datetime.now().strftime('%Y_%m_%d_%H%M%S')}.txt"
 
 
 def read_data(excel_path):
@@ -875,7 +900,7 @@ def plot_vectors_rel_sternum(df_ave, color_by='breast', vl_id=None, data_type='l
                 right_y_pos = lims[1] * 0.85
                 ax.text(right_x_pos, right_y_pos, 'Right Breast',
                        ha='center', va='center', fontsize=11,
-                       color='blue', alpha=0.6)
+                       color='blue', alpha=0.9)
             elif color_by == 'dts':
                 # For DTS coloring: black color for axial and coronal, no text for sagittal
                 if plane_name != 'Sagittal':
@@ -883,7 +908,7 @@ def plot_vectors_rel_sternum(df_ave, color_by='breast', vl_id=None, data_type='l
                     right_y_pos = lims[1] * 0.85
                     ax.text(right_x_pos, right_y_pos, 'Right Breast',
                            ha='center', va='center', fontsize=11,
-                           color='black', alpha=0.6)
+                           color='black', alpha=0.9)
             elif color_by == 'subject':
                 # For subject coloring: black color for axial and coronal only
                 if plane_name != 'Sagittal':
@@ -891,7 +916,7 @@ def plot_vectors_rel_sternum(df_ave, color_by='breast', vl_id=None, data_type='l
                     right_y_pos = lims[1] * 0.85
                     ax.text(right_x_pos, right_y_pos, 'Right Breast',
                            ha='center', va='center', fontsize=11,
-                           color='black', alpha=0.6)
+                           color='black', alpha=0.9)
 
         # Plot Left Breast Vectors
         if len(base_left) > 0:
@@ -3067,7 +3092,7 @@ def plot_anatomical_correlation_matrix(df):
 
     # Create custom labels for better readability
     label_mapping = {
-        'Landmark displacement [mm]': 'Total Displacement',
+        'Landmark displacement [mm]': 'Displacement Magnitude',
         'Landmark displacement vector vx': 'Displacement X (Med-Lat)',
         'Landmark displacement vector vy': 'Displacement Y (Ant-Post)',
         'Landmark displacement vector vz': 'Displacement Z (Inf-Sup)',
@@ -3132,6 +3157,13 @@ def plot_anatomical_correlation_matrix(df):
 
 
 if __name__ == "__main__":
+    # Initialize logging - save all terminal output to file
+    tee = Tee(LOG_FILE_PATH)
+    sys.stdout = tee
+    print(f"Analysis started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"Output will be saved to: {LOG_FILE_PATH}")
+    print("=" * 80)
+
     df_raw, df_ave, df_demo = read_data(EXCEL_FILE_PATH)
     print(df_raw.head())
     print(df_ave.head())
@@ -3337,7 +3369,7 @@ if __name__ == "__main__":
         overall_transitions = overall_transitions.reindex(index=quad_order, columns=quad_order, fill_value=0)
 
         # Show table
-        print("\nTransition Matrix (FROM prone rows → TO supine columns):")
+        print("\nTransition Matrix (FROM prone rows -> TO supine columns):")
         print(overall_transitions)
 
         # Create detailed list of transitions with counts
@@ -3388,7 +3420,7 @@ if __name__ == "__main__":
             )
             type_transitions = type_transitions.reindex(index=quad_order, columns=quad_order, fill_value=0)
 
-            print("\nTransition Matrix (FROM prone rows → TO supine columns):")
+            print("\nTransition Matrix (FROM prone rows -> TO supine columns):")
             print(type_transitions)
 
             # Detailed list for this type
@@ -3608,6 +3640,96 @@ if __name__ == "__main__":
     print("=" * 80)
 
 
+    #%% ===== DISPLACEMENT MAGNITUDE SUMMARY =====
+    print("\n" + "=" * 80)
+    print("DISPLACEMENT MAGNITUDE SUMMARY (Relative to Sternum)")
+    print("=" * 80)
+
+    # Get displacement magnitude column (from Excel data)
+    disp_col = 'Landmark displacement [mm]'
+    disp_rel_nipple_col = 'Landmark displacement relative to nipple [mm]'
+
+    if disp_col in df_ave.columns:
+        disp_data = df_ave[disp_col].dropna()
+
+        if len(disp_data) > 0:
+            mean_disp = disp_data.mean()
+            std_disp = disp_data.std()
+            median_disp = disp_data.median()
+            min_disp = disp_data.min()
+            max_disp = disp_data.max()
+            range_disp = max_disp - min_disp
+
+            print(f"\nLandmark Displacement (Sternum Reference):")
+            print(f"  N = {len(disp_data)}")
+            print(f"  Mean ± SD:    {mean_disp:.2f} ± {std_disp:.2f} mm")
+            print(f"  Median:       {median_disp:.2f} mm")
+            print(f"  Range:        {min_disp:.2f} - {max_disp:.2f} mm (Range: {range_disp:.2f} mm)")
+
+            # Calculate displacement by breast side
+            left_disp = df_ave[df_ave['landmark side (prone)'] == 'LB'][disp_col].dropna()
+            right_disp = df_ave[df_ave['landmark side (prone)'] == 'RB'][disp_col].dropna()
+
+            print(f"\n  By Breast Side:")
+            print(f"    Left Breast (n={len(left_disp)}):  {left_disp.mean():.2f} ± {left_disp.std():.2f} mm")
+            print(f"    Right Breast (n={len(right_disp)}): {right_disp.mean():.2f} ± {right_disp.std():.2f} mm")
+
+            # Statistical comparison between left and right
+            if len(left_disp) >= 3 and len(right_disp) >= 3:
+                t_stat, p_val = stats.ttest_ind(left_disp, right_disp)
+                sig = "***" if p_val < 0.001 else "**" if p_val < 0.01 else "*" if p_val < 0.05 else "ns"
+                print(f"    Difference: t={t_stat:.3f}, p={p_val:.4e} ({sig})")
+        else:
+            print("  No displacement data available.")
+    else:
+        print(f"  Column '{disp_col}' not found in data.")
+
+    # Displacement relative to nipple
+    if disp_rel_nipple_col in df_ave.columns:
+        disp_nipple_data = df_ave[disp_rel_nipple_col].dropna()
+
+        if len(disp_nipple_data) > 0:
+            mean_disp_n = disp_nipple_data.mean()
+            std_disp_n = disp_nipple_data.std()
+            median_disp_n = disp_nipple_data.median()
+            min_disp_n = disp_nipple_data.min()
+            max_disp_n = disp_nipple_data.max()
+
+            print(f"\nLandmark Displacement (Nipple Reference):")
+            print(f"  N = {len(disp_nipple_data)}")
+            print(f"  Mean ± SD:    {mean_disp_n:.2f} ± {std_disp_n:.2f} mm")
+            print(f"  Median:       {median_disp_n:.2f} mm")
+            print(f"  Range:        {min_disp_n:.2f} - {max_disp_n:.2f} mm")
+
+            # Calculate by breast side
+            left_disp_n = df_ave[df_ave['landmark side (prone)'] == 'LB'][disp_rel_nipple_col].dropna()
+            right_disp_n = df_ave[df_ave['landmark side (prone)'] == 'RB'][disp_rel_nipple_col].dropna()
+
+            print(f"\n  By Breast Side:")
+            print(f"    Left Breast (n={len(left_disp_n)}):  {left_disp_n.mean():.2f} ± {left_disp_n.std():.2f} mm")
+            print(f"    Right Breast (n={len(right_disp_n)}): {right_disp_n.mean():.2f} ± {right_disp_n.std():.2f} mm")
+
+    # Nipple displacement summary
+    left_nipple_disp_col = 'Left nipple displacement [mm]'
+    right_nipple_disp_col = 'Right nipple displacement [mm]'
+
+    if left_nipple_disp_col in df_ave.columns and right_nipple_disp_col in df_ave.columns:
+        # Get unique subject nipple displacements (avoid duplicates per subject)
+        nipple_data = df_ave.drop_duplicates(subset=['VL_ID'])
+        left_nipple_disp = nipple_data[left_nipple_disp_col].dropna()
+        right_nipple_disp = nipple_data[right_nipple_disp_col].dropna()
+
+        print(f"\nNipple Displacement (Sternum Reference):")
+        print(f"  Left Nipple (n={len(left_nipple_disp)}):  {left_nipple_disp.mean():.2f} ± {left_nipple_disp.std():.2f} mm")
+        print(f"  Right Nipple (n={len(right_nipple_disp)}): {right_nipple_disp.mean():.2f} ± {right_nipple_disp.std():.2f} mm")
+
+        # Combined nipple displacement
+        all_nipple = pd.concat([left_nipple_disp, right_nipple_disp])
+        print(f"  Combined (n={len(all_nipple)}): {all_nipple.mean():.2f} ± {all_nipple.std():.2f} mm")
+
+    print("=" * 80)
+
+
     #%% repeated anova for difference in distance to skin, rib cage, and nipples
     SUBJECT_ID = 'VL_ID'
     perform_repeated_measures_analysis(df_ave, SUBJECT_ID, dv_differences)
@@ -3783,3 +3905,9 @@ if __name__ == "__main__":
 
     test_partial_correlation(df_ave)
 
+    # Close logging
+    print("\n" + "=" * 80)
+    print(f"Analysis completed: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"Output saved to: {LOG_FILE_PATH}")
+    print("=" * 80)
+    tee.close()
