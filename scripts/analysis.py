@@ -2007,12 +2007,13 @@ def plot_nipple_relative_landmarks(
         # Extract DTS values if available
         dts_col = 'Distance to skin (prone) [mm]'
         dts_values = sub_df[dts_col].values if dts_col in sub_df.columns else None
+        vl_ids = sub_df['VL_ID'].values if 'VL_ID' in sub_df.columns else None
 
-        return base_points, ld_vectors_rel_nipple, dts_values, lm_displacement, nipple_displacement
+        return base_points, ld_vectors_rel_nipple, dts_values, vl_ids, lm_displacement, nipple_displacement
 
     # Extract data for both breasts
-    base_left, vec_left, dts_left, lm_disp_left, nipple_disp_left = get_nipple_relative_points_and_vectors(left_df, is_left_breast=True)
-    base_right, vec_right, dts_right, lm_disp_right, nipple_disp_right = get_nipple_relative_points_and_vectors(right_df, is_left_breast=False)
+    base_left, vec_left, dts_left, vl_ids_left, lm_disp_left, nipple_disp_left = get_nipple_relative_points_and_vectors(left_df, is_left_breast=True)
+    base_right, vec_right, dts_right, vl_ids_right, lm_disp_right, nipple_disp_right = get_nipple_relative_points_and_vectors(right_df, is_left_breast=False)
 
     # 4. Call the specialized plotting function
     plot_nipple_relative_vectors(
@@ -2022,6 +2023,8 @@ def plot_nipple_relative_landmarks(
         vector_right=vec_right,
         dts_left=dts_left,
         dts_right=dts_right,
+        subject_ids_left=vl_ids_left,
+        subject_ids_right=vl_ids_right,
         title=title,
         save_path=save_path,
         use_dts_cmap=use_dts_cmap
@@ -3841,7 +3844,7 @@ if __name__ == "__main__":
         vl_id=None,  # None means all subjects
         title="Displacement of landmarks relative to the nipple",
         save_path=save_path,
-        use_dts_cmap=True
+        use_dts_cmap=False
     )
 
     # 4. Analyze Clock Position Rotation (Polar Plot Analysis)

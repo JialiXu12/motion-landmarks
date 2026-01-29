@@ -17,6 +17,8 @@ def plot_nipple_relative_vectors(
         vector_right: np.ndarray,
         dts_left: np.ndarray = None,
         dts_right: np.ndarray = None,
+        subject_ids_left: np.ndarray = None,
+        subject_ids_right: np.ndarray = None,
         title: str = None,
         save_path: str = None,
         use_dts_cmap: bool = True
@@ -32,9 +34,14 @@ def plot_nipple_relative_vectors(
         vector_right: (M, 3) array of right breast displacement vectors
         dts_left: (N,) array of DTS values for left breast landmarks (optional, for coloring)
         dts_right: (M,) array of DTS values for right breast landmarks (optional, for coloring)
+        subject_ids_left: (N,) array of subject IDs for left breast landmarks (optional, for coloring by subject)
+        subject_ids_right: (M,) array of subject IDs for right breast landmarks (optional, for coloring by subject)
         title: Overall title for the plots
         save_path: Path to save the figure (optional)
-    
+        use_dts_cmap: If True, color by DTS (viridis colormap with colorbar).
+                      If False and subject_ids provided, color by subject (viridis colormap, no legend).
+                      If False and no subject_ids, color by breast side (blue=right, green=left).
+
     Coordinate system:
         X (0): Right/Left (positive = right, negative = left)
         Y (1): Anterior/Posterior (positive = anterior, negative = posterior)
@@ -77,6 +84,7 @@ def plot_nipple_relative_vectors(
             base_point_left, vector_left,
             base_point_right, vector_right,
             dts_left, dts_right,
+            subject_ids_left, subject_ids_right,
             title, save_path,
             use_dts_cmap
         )
@@ -91,6 +99,8 @@ def _plot_single_plane(
         vector_right: np.ndarray,
         dts_left: np.ndarray,
         dts_right: np.ndarray,
+        subject_ids_left: np.ndarray,
+        subject_ids_right: np.ndarray,
         title: str,
         save_path: str,
         use_dts_cmap: bool
@@ -124,7 +134,7 @@ def _plot_single_plane(
     # Plot Right Breast
     _plot_breast_side(
         ax_right, plane_name, config,
-        base_point_right, vector_right, dts_right,
+        base_point_right, vector_right, dts_right, subject_ids_right,
         'Right breast', 'right', lims_x, lims_y, radius,
         use_dts_cmap
     )
@@ -132,7 +142,7 @@ def _plot_single_plane(
     # Plot Left Breast
     _plot_breast_side(
         ax_left, plane_name, config,
-        base_point_left, vector_left, dts_left,
+        base_point_left, vector_left, dts_left, subject_ids_left,
         'Left breast', 'left', lims_x, lims_y, radius,
         use_dts_cmap
     )
@@ -143,7 +153,12 @@ def _plot_single_plane(
     if save_path:
         # Ensure parent directory exists
         Path(save_path).parent.mkdir(parents=True, exist_ok=True)
-        filename = f"{save_path}_{plane_name.lower()}.png"
+        if use_dts_cmap:
+            filename = f"{save_path}_{plane_name.lower()}_DTS.png"
+        elif subject_ids_left is not None or subject_ids_right is not None:
+            filename = f"{save_path}_{plane_name.lower()}_by_subject.png"
+        else:
+            filename = f"{save_path}_{plane_name.lower()}_by_breast.png"
         plt.savefig(filename, dpi=300, bbox_inches='tight')
         print(f"Saved: {filename}")
 
@@ -159,6 +174,7 @@ def _plot_breast_side(
         base_points: np.ndarray,
         vectors: np.ndarray,
         dts_values: np.ndarray,
+        subject_ids: np.ndarray,
         side_title: str,
         side: str,
         lims_x: tuple,
@@ -208,24 +224,16 @@ def _plot_breast_side(
 
     # Plot vectors
     if len(base_points) > 0:
-        # Determine colors
         if use_dts_cmap and dts_values is not None and len(dts_values) == len(base_points):
-            # Color by DTS
+            # Color by DTS (viridis colormap)
             colors = dts_values
-            cmap = 'viridis'
-        else:
-            # Default color
-            colors = 'darkblue'
-            cmap = None
 
-        # Plot quiver
-        if cmap:
             # Create scatter plot for color mapping
             scatter = ax.scatter(
                 base_points[:, AXIS_X],
                 base_points[:, AXIS_Y],
                 c=colors,
-                cmap=cmap,
+                cmap='viridis',
                 s=20,
                 zorder=5,
                 vmin=0,
@@ -245,17 +253,65 @@ def _plot_breast_side(
                     vectors[i, AXIS_Y],
                     head_width=2,
                     head_length=2,
-                    fc=plt.cm.viridis(colors[i] / 40) if cmap else colors,
-                    ec=plt.cm.viridis(colors[i] / 40) if cmap else colors,
+                    fc=plt.cm.viridis(colors[i] / 40),
+                    ec=plt.cm.viridis(colors[i] / 40),
                     alpha=0.7,
                     zorder=4
                 )
+
+        elif not use_dts_cmap and subject_ids is not None and len(subject_ids) == len(base_points):
+            # Color by subject ID (viridis colormap, same as plot_vectors_rel_sternum)
+            unique_subjects = np.unique(subject_ids)
+            n_subjects = len(unique_subjects)
+            cmap_subj = cm.get_cmap('viridis', max(n_subjects, 1))
+
+            subject_to_idx = {subj: i for i, subj in enumerate(unique_subjects)}
+
+            # Plot each subject with a different color (no legend, same as sternum plot)
+            for i, subj in enumerate(unique_subjects):
+                mask = subject_ids == subj
+                color = cmap_subj(subject_to_idx[subj])
+
+                # Plot scatter points for this subject
+                ax.scatter(
+                    base_points[mask, AXIS_X],
+                    base_points[mask, AXIS_Y],
+                    c=[color],
+                    s=20,
+                    zorder=5,
+                    alpha=0.7
+                )
+
+                # Plot arrows for this subject
+                subj_base = base_points[mask]
+                subj_vec = vectors[mask]
+                for j in range(len(subj_base)):
+                    ax.arrow(
+                        subj_base[j, AXIS_X],
+                        subj_base[j, AXIS_Y],
+                        subj_vec[j, AXIS_X],
+                        subj_vec[j, AXIS_Y],
+                        head_width=2,
+                        head_length=2,
+                        fc=color,
+                        ec=color,
+                        alpha=0.7,
+                        zorder=4
+                    )
+
         else:
+            # Default: color by breast side (same as plot_vectors_rel_sternum)
+            # Blue for right breast, green for left breast
+            if side == 'right':
+                breast_color = 'blue'
+            else:
+                breast_color = 'green'
+
             # Plot scatter points
             ax.scatter(
                 base_points[:, AXIS_X],
                 base_points[:, AXIS_Y],
-                c=colors,
+                c=breast_color,
                 s=20,
                 zorder=5,
                 alpha=0.7
@@ -270,7 +326,7 @@ def _plot_breast_side(
                 angles='xy',
                 scale_units='xy',
                 scale=1,
-                color=colors,
+                color=breast_color,
                 width=0.003,
                 headwidth=3,
                 headlength=4,
