@@ -76,10 +76,6 @@ def rotation_matrix_from_euler(angles: np.ndarray) -> np.ndarray:
     return Rz @ Ry @ Rx
 
 
-# Removed center_on_anchor and uncenter_from_anchor functions
-# Use direct operations: points - anchor (centering) and points + anchor (uncentering)
-
-
 def rotation_only_objective(
     angles: np.ndarray,
     prone_ribcage_centered: np.ndarray,
@@ -188,7 +184,6 @@ def huber_loss(residuals: np.ndarray, delta: float = 1.0) -> float:
 def run_fixed_sternum_icp(
     source_pts_centered: np.ndarray,
     target_pts_centered: np.ndarray,
-    target_normals: Optional[np.ndarray] = None,
     max_correspondence_distance: float = 10.0,
     max_iterations: int = 50,
     huber_delta: float = 2.0,
@@ -205,7 +200,6 @@ def run_fixed_sternum_icp(
     Args:
         source_pts_centered: Source points (centered on sternum superior)
         target_pts_centered: Target points (centered on sternum superior)
-        target_normals: Target normals (optional, will be estimated if None)
         max_correspondence_distance: Max distance for correspondences
         max_iterations: Max ICP iterations
         huber_delta: Threshold for Huber loss (robustness parameter)
@@ -221,17 +215,14 @@ def run_fixed_sternum_icp(
     if source_pts_centered.size == 0 or target_pts_centered.size == 0:
         return np.eye(3), source_pts_centered.copy(), {"fitness": 0.0, "inlier_rmse": np.nan}
 
-    # Estimate normals if not provided
-    if target_normals is None:
-        if verbose:
-            print("  Estimating surface normals...")
-        target_normals = estimate_normals_from_neighbors(target_pts_centered, k_neighbors=50)
+    # Estimate normals
+    print("  Estimating surface normals...")
+    target_normals = estimate_normals_from_neighbors(target_pts_centered, k_neighbors=50)
 
     # Build KD-Tree for fast nearest neighbor search
     tree = cKDTree(target_pts_centered)
 
     # Initialize rotation
-    current_angles = np.zeros(3)
     R_cumulative = np.eye(3)
 
     # Iterative ICP refinement
