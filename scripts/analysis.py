@@ -445,7 +445,7 @@ def plot_bmi_correlations(df, output_filename='BMI_Shift_Correlations.png'):
         scatter_kws={'alpha': 0.4, 'color': 'teal', 's': 40},
         line_kws={'color': 'firebrick', 'linewidth': 2}
     )
-    axes[0].set_title('Impact of BMI on Difference in DTN\n(β = -4.01, p < 0.001)', fontsize=14)
+    axes[0].set_title('Impact of BMI on Difference in DTN\n(β = -0.43, p < 0.001)', fontsize=14)
     axes[0].set_xlabel('Body Mass Index (BMI) [kg/m²]', fontsize=12)
     axes[0].set_ylabel('Difference in DTN [mm]', fontsize=12)
 
@@ -458,7 +458,7 @@ def plot_bmi_correlations(df, output_filename='BMI_Shift_Correlations.png'):
         scatter_kws={'alpha': 0.4, 'color': 'darkblue', 's': 40},
         line_kws={'color': 'firebrick', 'linewidth': 2}
     )
-    axes[1].set_title('Impact of BMI on Difference in DTR\n(β = -1.44, p < 0.001)', fontsize=14)
+    axes[1].set_title('Impact of BMI on Difference in DTR\n(β = -1.45, p < 0.001)', fontsize=14)
     axes[1].set_xlabel('Body Mass Index (BMI) [kg/m²]', fontsize=12)
     axes[1].set_ylabel('Difference in DTR [mm]', fontsize=12)
 
