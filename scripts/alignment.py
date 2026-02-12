@@ -897,7 +897,7 @@ def inverse_transform_to_source_frame(coords, R, source_anchor, target_anchor):
 #
 
 # #### center = morphic_mesh.elements[i].get_centroid()
-def plot_mesh_elements(morphic_mesh, ribcage_point_cloud=None):
+def plot_mesh_elements(mesh, ribcage_point_cloud=None):
     """
     Extract element centers from morphic mesh and visualize with labels,
     optionally including the mesh surface and ribcage point cloud.
@@ -916,11 +916,11 @@ def plot_mesh_elements(morphic_mesh, ribcage_point_cloud=None):
         centers_array: (N, 3) array of element center coordinates
     """
     centers = []
-    num_elements = morphic_mesh.elements.size()
+    num_elements = mesh.elements.size()
 
     for i in range(num_elements):
         # Get surface coordinates for this element
-        elem_coords = get_surface_mesh_coords(morphic_mesh, 3, elems=[i])
+        elem_coords = get_surface_mesh_coords(mesh, 3, elems=[i])
         # elem_coords has shape (NPPE, 3) where NPPE is number of points per element
         # Get the center point (middle index along first axis)
         center_idx = elem_coords.shape[0] // 2
@@ -940,7 +940,7 @@ def plot_mesh_elements(morphic_mesh, ribcage_point_cloud=None):
     # Visualize with PyVista
     plt = pv.Plotter()
 
-    mesh_meshio = mesh_tools.morphic_to_meshio(morphic_mesh, triangulate=True, exterior_only=True)
+    mesh_meshio = mesh_tools.morphic_to_meshio(mesh, triangulate=True, res=4, exterior_only=True)
     plt.add_mesh(mesh_meshio,show_edges=False,color='#FFCCCC',style="surface",
         opacity=0.5,label='Surface_mesh')
     # # Get full mesh surface coordinates
@@ -1109,7 +1109,7 @@ def align_prone_to_supine_optimal(
     )
     supine_ribcage_pc = extract_contour_points(supine_ribcage_mask, 20000)
 
-    # plot_mesh_elements(prone_ribcage,ribcage_point_cloud=supine_ribcage_pc)
+    plot_mesh_elements(prone_ribcage,ribcage_point_cloud=supine_ribcage_pc)
 
     # Clean up the supine point cloud by removing problematic regions
     # Step 1: Remove top and bottom axial slices

@@ -11,12 +11,11 @@ from utils import (
     save_results_to_excel,
     save_raw_data_to_excel
 )
-import pyvista as pv
-import json
 from scripts.utils_plot import plot_vector_three_views_multi_subject
 from structures import Subject
 import numpy as np
-import external.breast_metadata_mdv.breast_metadata as breast_metadata
+from align_fixed_sternum import align_prone_to_supine_fixed_sternum
+from alignment import align_prone_to_supine_optimal
 
 
 #%% --- Define all your root paths ---
@@ -30,20 +29,19 @@ SUPINE_RIBCAGE_ROOT = Path(r"U:\sandbox\jxu759\volunteer_seg\results\supine\rib_
 
 OUTPUT_DIR = Path("../output")
 # EXCEL_FILE_PATH = OUTPUT_DIR / "landmark_results_v3_2025_12.xlsx"
-EXCEL_FILE_PATH = OUTPUT_DIR / "landmark_results_v5_2026_01_13.xlsx"
+EXCEL_FILE_PATH = OUTPUT_DIR / "landmark_results_v6_2026_02_10.xlsx"
 
 # OUTPUT_DIR_T_Matrix = Path(r"../output/transformation_matrix")
-OUTPUT_DIR_T_Matrix = Path(r"../output/transformation_matrix_v2")
+OUTPUT_DIR_T_Matrix = Path(r"../output/transformation_matrix_v6")
 OUTPUT_DIR_T_Matrix.mkdir(parents=True, exist_ok=True)
 
 #%% --- Define subjects to load ---
 # VL_IDS = [54,56,57,58,59,60,61,63,64,65,66,67,68,69,70,71,72,74,75,76,77,78,79,81,82,84,85,86,87,88,89]
-VL_IDS = [81]
-# VL_IDS = [9,10,11,12,14,15,17,18,19,20,22,25,27,28,29,30,31]
-# VL_IDS = [32,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50]
-# VL_IDS = [51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69]
-# VL_IDS = [70,71,72,73,74,75,76,77,78,79,81,82,83,84,85,
-#           86,87,88,89]
+VL_IDS = [22]
+# VL_IDS = [9,11,12,14,15,17,18,19,20,22,25,29,30,31]
+# VL_IDS = [32,34,35,36,37,38,39,40,41,42,44,45,46,47,48,49,50]
+# VL_IDS = [51,52,53,54,56,57,58,59,60,61,63,64,65,66,67,68,69]
+# VL_IDS = [70,71,72,74,75,76,77,78,79,81,82,84,85,86,87,88,89]
 
 print("Number of participants in total: ", len(VL_IDS))
 # VL_IDS = [9,11,12,14,15,17,18,19,20,22,25,29,30,31,32,34,35,36,37,38,39,40,41,42,44,45,46,47,48,49,50,51,52,
@@ -100,6 +98,7 @@ clockface_results = calculate_clockface_coordinates(all_subjects_filtered)
 
 # --- 3. Alignment ---
 print("\n--- Starting Prone-to-Supine Alignment ---")
+print(f"Subjects in all_subjects_filtered: {list(all_subjects_filtered.keys())}")
 alignment_results_all = {}  # Dictionary to store results for all subjects
 
 for vl_id, filtered_subject in all_subjects_filtered.items():
@@ -120,12 +119,29 @@ for vl_id, filtered_subject in all_subjects_filtered.items():
             continue
 
         # --- 3. Call the alignment function ---
-        alignment_results = align_prone_to_supine(
+        # alignment_results = align_prone_to_supine(
+        #     subject=filtered_subject,
+        #     prone_ribcage_mesh_path=prone_mesh_file,
+        #     supine_ribcage_seg_path=supine_seg_file,
+        #     orientation_flag='RAI',
+        #     plot_for_debug=True
+        # )
+
+        # --- 3. Call the alignment function ---
+        # alignment_results = align_prone_to_supine_fixed_sternum(
+        #     subject=filtered_subject,
+        #     prone_ribcage_mesh_path=prone_mesh_file,
+        #     supine_ribcage_seg_path=supine_seg_file,
+        #     orientation_flag='RAI',
+        #     plot_for_debug=True
+        # )
+
+        alignment_results = align_prone_to_supine_optimal(
             subject=filtered_subject,
             prone_ribcage_mesh_path=prone_mesh_file,
             supine_ribcage_seg_path=supine_seg_file,
             orientation_flag='RAI',
-            plot_for_debug=False
+            plot_for_debug=True
         )
 
         # --- 4. Store and print summary ---
@@ -140,6 +156,8 @@ for vl_id, filtered_subject in all_subjects_filtered.items():
     except Exception as e:
         print(f"!!! Alignment for {vl_id_str} FAILED: {e}")
 
+print(f"\nSubjects with alignment results: {list(alignment_results_all.keys())}")
+
 #%% --- 4. Save results to Excel ---
 save_results_to_excel(
     excel_path=EXCEL_FILE_PATH,
@@ -151,17 +169,18 @@ save_results_to_excel(
 )
 
 
-for vl_id, filtered_subject in all_subjects_filtered.items():
+# Save transformation matrices for subjects with successful alignment
+for vl_id, results in alignment_results_all.items():
     vl_id_str = f"VL{vl_id:05d}"
     matrix_path = OUTPUT_DIR_T_Matrix / f"{vl_id_str}_transform_matrix.npy"
-    np.save(matrix_path, alignment_results_all[vl_id]["T_total"])
+    np.save(matrix_path, results["T_total"])
+    print(f"Saved transformation matrix for {vl_id_str}")
 
-    # loaded_matrix = np.load('transform_matrix.npy')
 #%% --
 plot_vector_three_views_multi_subject(
     alignment_results_all=alignment_results_all,
     registrar_key="ld_ave",
-    title="Displacement of landmarks from prone to supine",
+    title="Displacement of landmarks from prone to supine relative to nipple",
 )
 
 
