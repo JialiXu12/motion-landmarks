@@ -896,25 +896,14 @@ def inverse_transform_to_source_frame(coords, R, source_anchor, target_anchor):
 #     }
 #
 
-# #### center = morphic_mesh.elements[i].get_centroid()
-def plot_mesh_elements(mesh, ribcage_point_cloud=None):
-    """
-    Extract element centers from morphic mesh and visualize with labels,
-    optionally including the mesh surface and ribcage point cloud.
+def get_mesh_elements(mesh):
+    # Extract element centers from morphic mesh
 
-    Args:
-        morphic_mesh: morphic.Mesh object
-        ribcage_point_cloud: (N, 3) array of ribcage point cloud coordinates (optional)
-        mesh_resolution: resolution for mesh surface extraction (default: 10)
-        show_mesh: whether to display the mesh surface (default: True)
-        show_point_cloud: whether to display the point cloud (default: True)
-        mesh_opacity: opacity of the mesh surface (default: 0.5)
-        point_cloud_color: color of the point cloud (default: 'blue')
-        mesh_color: color of the mesh surface (default: 'lightgray')
+    # Detect mesh dimensionality by checking first element's basis
+    first_element = list(mesh.elements)[0]
+    mesh_dims = len(first_element.basis)
+    print(f"INFO: Mesh has {mesh_dims}D elements with basis {first_element.basis}")
 
-    Returns:
-        centers_array: (N, 3) array of element center coordinates
-    """
     centers = []
     num_elements = mesh.elements.size()
 
@@ -937,12 +926,54 @@ def plot_mesh_elements(mesh, ribcage_point_cloud=None):
     elif centers_array.ndim != 2 or centers_array.shape[1] != 3:
         raise ValueError(f"centers_array has unexpected shape {centers_array.shape}. Expected (N, 3).")
 
+    return centers_array, num_elements
+
+
+def get_mesh_elements_2(mesh):
+    # Extract element centers from morphic mesh
+
+    # Detect mesh dimensionality by checking first element's basis
+    first_element = list(mesh.elements)[0]
+    mesh_dims = len(first_element.basis)
+    print(f"INFO: Mesh has {mesh_dims}D elements with basis {first_element.basis}")
+
+    centers = []
+    num_elements = mesh.elements.size()
+
+    Xi = mesh.grid(3, method='center')
+    for i in range(num_elements):
+        elem = list(mesh.elements)[i]
+        elem_coords = elem.evaluate(Xi)
+        center_idx = elem_coords.shape[0] // 2
+        center = elem_coords[center_idx, :]
+        centers.append(center)
+
+    centers_array = np.array(centers)
+    if centers_array.ndim == 1:
+        centers_array = centers_array.reshape(1, 3)
+
+    return centers_array, num_elements
+
+# #### center = morphic_mesh.elements[i].get_centroid()
+def plot_mesh_elements(mesh_points, centers_array, num_elements, ribcage_point_cloud=None):
+    """
+    Visualize element centers with labels,
+    optionally including the mesh surface and ribcage point cloud.
+
+    Args:
+        morphic_mesh: morphic.Mesh object
+        ribcage_point_cloud: (N, 3) array of ribcage point cloud coordinates (optional)
+
+    Returns:
+        centers_array: (N, 3) array of element center coordinates
+    """
     # Visualize with PyVista
     plt = pv.Plotter()
 
-    mesh_meshio = mesh_tools.morphic_to_meshio(mesh, triangulate=True, res=4, exterior_only=True)
-    plt.add_mesh(mesh_meshio,show_edges=False,color='#FFCCCC',style="surface",
-        opacity=0.5,label='Surface_mesh')
+    # mesh_meshio = mesh_tools.morphic_to_meshio(mesh, triangulate=True, res=4, exterior_only=True)
+    # plt.add_mesh(mesh_meshio,show_edges=False,color='#FFCCCC',style="surface",
+    #     opacity=0.5,label='Surface_mesh')
+
     # # Get full mesh surface coordinates
     # mesh_coords = get_surface_mesh_coords(morphic_mesh, res=26, elems=[])
     # mesh_cloud = pv.PolyData(mesh_coords)
@@ -951,10 +982,15 @@ def plot_mesh_elements(mesh, ribcage_point_cloud=None):
     # plt.add_mesh(mesh_surface, color='lightgray', opacity=0.5,
     #             show_edges=True, edge_color='gray', name="mesh_surface")
 
-    # Add ribcage point cloud if provided and requested
-    if ribcage_point_cloud is not None:
-        plt.add_points(ribcage_point_cloud,color='tan',label='Point cloud',
-            point_size=2,render_points_as_spheres=True)
+
+    # Plotted 3D coordinates of a Surface Mesh.
+    plt.add_points(
+        mesh_points,
+        color='gray',
+        render_points_as_spheres=True,
+        point_size=2,
+        label='3D coordinates of a surface mesh'
+    )
 
     # Add element center labels
     plt.add_point_labels(
@@ -969,11 +1005,17 @@ def plot_mesh_elements(mesh, ribcage_point_cloud=None):
         name="element_labels"  # Giving it a name allows you to update/remove it later
     )
 
+    # Add ribcage point cloud if provided and requested
+    if ribcage_point_cloud is not None:
+        plt.add_points(ribcage_point_cloud,color='tan',label='Point cloud',
+            point_size=2,render_points_as_spheres=True)
+
+
     # Add legend
     if ribcage_point_cloud is not None:
         plt.add_legend([
-            ['Element Centers', 'red'],
             ['Mesh Surface', '#FFCCCC'],
+            ['Element Centers', 'red'],
             ['Ribcage Point Cloud', 'tan']
         ])
 
@@ -1023,6 +1065,110 @@ def get_surface_mesh_coords(morphic_mesh, res, elems=[]):
     return mesh_coords
 
 
+def select_anterior_elements_symmetric(
+        morphic_mesh,
+        y_percentile: float = 50.0,
+        verbose: bool = True
+) -> list:
+    """
+    Automatically select anterior ribcage elements symmetrically for both sides.
+
+    This function identifies elements that are:
+    1. In the anterior region (below median Y coordinate - more negative Y = more anterior)
+    2. Balanced between left and right sides (symmetric selection based on X coordinate)
+
+    Args:
+        morphic_mesh: morphic.Mesh object
+        y_percentile: Percentile threshold for Y coordinate (default 50 = median).
+                     Elements with Y below this percentile are considered anterior.
+        verbose: Print selection details
+
+    Returns:
+        List of element indices for symmetric anterior selection
+    """
+    # Get element centers
+    centers_array, num_elements = get_mesh_elements(morphic_mesh)
+
+    # Find the median X (left-right axis) and Y (anterior-posterior axis)
+    x_median = np.median(centers_array[:, 0])
+    y_threshold = np.percentile(centers_array[:, 1], y_percentile)
+
+    # Classify elements by side (left/right based on X relative to median)
+    left_elements = []  # X > median (positive X = left in RAI)
+    right_elements = []  # X < median (negative X = right in RAI)
+
+    for i in range(num_elements):
+        center = centers_array[i]
+        # Check if element is anterior (Y below threshold)
+        if center[1] < y_threshold:
+            if center[0] >= x_median:
+                left_elements.append((i, center))
+            else:
+                right_elements.append((i, center))
+
+    # Sort by distance from midline to ensure symmetric pairing
+    left_elements.sort(key=lambda x: abs(x[1][0] - x_median))
+    right_elements.sort(key=lambda x: abs(x[1][0] - x_median))
+
+    # Take equal number from each side for symmetry
+    n_per_side = min(len(left_elements), len(right_elements))
+
+    selected_left = [e[0] for e in left_elements[:n_per_side]]
+    selected_right = [e[0] for e in right_elements[:n_per_side]]
+
+    selected_elements = sorted(selected_left + selected_right)
+
+    if verbose:
+        print(f"\n=== Symmetric Element Selection ===")
+        print(f"  X median (left-right): {x_median:.1f}")
+        print(f"  Y threshold (anterior): {y_threshold:.1f}")
+        print(f"  Left side elements: {selected_left}")
+        print(f"  Right side elements: {selected_right}")
+        print(f"  Total selected: {len(selected_elements)}/{num_elements}")
+        print(f"  Selected elements: {selected_elements}")
+
+    return selected_elements
+
+
+def get_mesh_with_selected_elements(
+        morphic_mesh,
+        selected_elements: list,
+        res: int = 26
+) -> np.ndarray:
+    """
+    Return mesh coordinates for only the selected elements.
+
+    Use this after plot_mesh_elements to pick which elements (e.g. anterior
+    ribcage only) should be used for alignment. Elements not in the list
+    are excluded from the returned point cloud.
+
+    Args:
+        morphic_mesh: morphic.Mesh object
+        selected_elements: list of element indices to keep (e.g. [0,1,2,5,6])
+        res: number of material points per element axis (default: 26)
+
+    Returns:
+        (N, 3) array of mesh coordinates for the selected elements only
+    """
+    if not selected_elements:
+        raise ValueError("selected_elements must be a non-empty list of element indices")
+
+    num_elements = morphic_mesh.elements.size()
+    invalid = [e for e in selected_elements if e < 0 or e >= num_elements]
+    if invalid:
+        raise ValueError(
+            f"Element indices {invalid} are out of range. "
+            f"Mesh has {num_elements} elements (0-{num_elements - 1})."
+        )
+
+    mesh_coords = get_surface_mesh_coords(morphic_mesh, res=res, elems=selected_elements)
+
+    print(f"Selected {len(selected_elements)}/{num_elements} elements "
+          f"→ {mesh_coords.shape[0]} points")
+
+    return mesh_coords
+
+
 def align_prone_to_supine_optimal(
         subject: "Subject",
         prone_ribcage_mesh_path: Path,
@@ -1032,6 +1178,9 @@ def align_prone_to_supine_optimal(
         max_correspondence_distance: float = 15.0,
         max_iterations: int = 500,
         trim_percentage: float = 0.1,
+        selected_elements: list = None,
+        auto_select_symmetric: bool = False,
+        y_percentile_for_anterior: float = 50.0,
         verbose: bool = True
 ) -> dict:
     """
@@ -1053,6 +1202,16 @@ def align_prone_to_supine_optimal(
                         For scientific reporting: "Outlier rejection used 10% trimming."
                         Note: The final inlier percentage (points within 15mm after alignment)
                         will vary by subject quality but trimming is always consistent.
+        selected_elements: List of element indices to use for alignment (e.g. [0,1,2,5]).
+                          Use plot_mesh_elements to identify which elements are anterior.
+                          When None, all elements are used. When provided, only these
+                          elements contribute to ICP alignment. The full mesh is still
+                          used for visualization and error reporting.
+        auto_select_symmetric: If True, automatically select anterior elements with
+                              balanced left-right coverage. This overrides selected_elements.
+        y_percentile_for_anterior: When auto_select_symmetric=True, this percentile
+                                  determines the Y threshold for anterior selection.
+                                  Default 50 = median (top half of anterior region).
         verbose: Print progress information
 
     Returns:
@@ -1109,7 +1268,39 @@ def align_prone_to_supine_optimal(
     )
     supine_ribcage_pc = extract_contour_points(supine_ribcage_mask, 20000)
 
-    plot_mesh_elements(prone_ribcage,ribcage_point_cloud=supine_ribcage_pc)
+    # Get element centers and visualize (use this to decide which elements to select)
+    centers_array, num_elements = get_mesh_elements(prone_ribcage)
+    plot_mesh_elements(prone_ribcage_mesh_coords, centers_array, num_elements, supine_ribcage_pc)
+
+    # Select subset of mesh elements for alignment (e.g. anterior ribcage only)
+    # Priority: auto_select_symmetric > selected_elements > all elements
+    if auto_select_symmetric:
+        # Automatically select anterior elements with balanced left-right coverage
+        selected_elements = select_anterior_elements_symmetric(
+            prone_ribcage,
+            y_percentile=y_percentile_for_anterior,
+            verbose=verbose
+        )
+        prone_ribcage_alignment_coords = get_mesh_with_selected_elements(
+            prone_ribcage, selected_elements, res=26
+        )
+        if plot_for_debug:
+            plot_mesh_elements(prone_ribcage_alignment_coords, centers_array, num_elements, supine_ribcage_pc)
+    elif selected_elements is not None:
+        prone_ribcage_alignment_coords = get_mesh_with_selected_elements(
+            prone_ribcage, selected_elements, res=26
+        )
+        plot_mesh_elements(prone_ribcage_alignment_coords, centers_array, num_elements, supine_ribcage_pc)
+
+        if verbose:
+            print(f"  Using {len(selected_elements)}/{num_elements} elements for alignment")
+            print(f"  Selected elements: {selected_elements}")
+            print(f"  Alignment points: {prone_ribcage_alignment_coords.shape[0]} "
+                  f"(full mesh: {prone_ribcage_mesh_coords.shape[0]})")
+    else:
+        prone_ribcage_alignment_coords = prone_ribcage_mesh_coords
+        if verbose:
+            print(f"  Using all {num_elements} elements for alignment")
 
     # Clean up the supine point cloud by removing problematic regions
     # Step 1: Remove top and bottom axial slices
@@ -1141,7 +1332,7 @@ def align_prone_to_supine_optimal(
     # ==========================================================
 
     R, aligned_prone_centered, info = optimal_sternum_fixed_alignment(
-        source_pts=prone_ribcage_mesh_coords,
+        source_pts=prone_ribcage_alignment_coords,
         target_pts=supine_ribcage_pc,
         source_sternum_sup=sternum_prone[0],
         target_sternum_sup=sternum_supine[0],
@@ -1178,15 +1369,22 @@ def align_prone_to_supine_optimal(
         landmark_prone_ave_raw, R, source_anchor, target_anchor
     )
 
-    # Transform ribcage for visualization
+    # Transform full ribcage for visualization and error calculation
     prone_ribcage_transformed = apply_transform_to_coords(
         prone_ribcage_mesh_coords, R, source_anchor, target_anchor
     )
 
+    # Transform selected elements (same as full when no selection)
+    if selected_elements is not None:
+        prone_selected_transformed = apply_transform_to_coords(
+            prone_ribcage_alignment_coords, R, source_anchor, target_anchor
+        )
+    else:
+        prone_selected_transformed = prone_ribcage_transformed
+
     # Transform supine ribcage point cloud for visualisation
     supine_ribcage_transformed = inverse_transform_to_source_frame(supine_ribcage_pc, R, source_anchor, target_anchor)
-    # plot_mesh_elements(prone_ribcage,ribcage_point_cloud=supine_ribcage_transformed)
-
+    plot_mesh_elements(prone_ribcage_mesh_coords, centers_array, num_elements, supine_ribcage_transformed)
 
     # ==========================================================
     # 4. CALCULATE ERRORS AND METRICS
@@ -1195,16 +1393,25 @@ def align_prone_to_supine_optimal(
     # Sternum error (should be near zero)
     sternum_error = np.linalg.norm(prone_sternum_transformed[0] - sternum_supine[0])
 
-    # Ribcage errors
-    error, mapped_idx = breast_metadata.closest_distances(
+    # --- Full mesh errors ---
+    error_full, mapped_idx_full = breast_metadata.closest_distances(
         supine_ribcage_pc, prone_ribcage_transformed
     )
-    rib_error_mag = np.linalg.norm(error, axis=1)
+    rib_error_mag_full = np.linalg.norm(error_full, axis=1)
 
-    # Calculate metrics for ALL ribcage points (not just inliers)
-    ribcage_error_mean = float(np.mean(rib_error_mag))
-    ribcage_error_std = float(np.std(rib_error_mag))
-    ribcage_error_rmse = float(np.sqrt(np.mean(rib_error_mag ** 2)))  # RMSE for all points
+    ribcage_error_mean = float(np.mean(rib_error_mag_full))
+    ribcage_error_std = float(np.std(rib_error_mag_full))
+    ribcage_error_rmse = float(np.sqrt(np.mean(rib_error_mag_full ** 2)))
+
+    # --- Selected elements errors ---
+    error_selected, mapped_idx_selected = breast_metadata.closest_distances(
+        supine_ribcage_pc, prone_selected_transformed
+    )
+    rib_error_mag_selected = np.linalg.norm(error_selected, axis=1)
+
+    selected_error_mean = float(np.mean(rib_error_mag_selected))
+    selected_error_std = float(np.std(rib_error_mag_selected))
+    selected_error_rmse = float(np.sqrt(np.mean(rib_error_mag_selected ** 2)))
 
     # Also keep inlier RMSE for comparison (used during optimization)
     ribcage_inlier_rmse = info['euclidean_rmse']
@@ -1214,10 +1421,14 @@ def align_prone_to_supine_optimal(
         print(f"ALIGNMENT RESULTS:")
         print(f"{'='*60}")
         print(f"  Sternum error: {sternum_error:.6f} mm (should be ~0)")
-        print(f"  Ribcage RMSE (all points): {ribcage_error_rmse:.4f} mm")
-        print(f"  Ribcage RMSE (inliers only): {ribcage_inlier_rmse:.4f} mm")
-        print(f"  Ribcage mean error: {ribcage_error_mean:.4f} mm")
-        print(f"  Ribcage std error: {ribcage_error_std:.4f} mm")
+        print(f"  --- Full mesh ({prone_ribcage_mesh_coords.shape[0]} pts) ---")
+        print(f"    RMSE: {ribcage_error_rmse:.4f} mm")
+        print(f"    Mean ± SD: {ribcage_error_mean:.4f} ± {ribcage_error_std:.4f} mm")
+        if selected_elements is not None:
+            print(f"  --- Selected elements ({prone_ribcage_alignment_coords.shape[0]} pts) ---")
+            print(f"    RMSE: {selected_error_rmse:.4f} mm")
+            print(f"    Mean ± SD: {selected_error_mean:.4f} ± {selected_error_std:.4f} mm")
+        print(f"  --- ICP inlier RMSE: {ribcage_inlier_rmse:.4f} mm ---")
         print(f"  Final correspondences within 15mm: {info['n_inliers']}/{info['n_total_source']} ({info['inlier_fraction']*100:.1f}%)")
         print(f"  Note: Trim percentage (fixed at {trim_percentage*100:.0f}%) was applied during optimization")
         print(f"  Iterations: {info['iterations']}")
@@ -1226,7 +1437,7 @@ def align_prone_to_supine_optimal(
         print(f"\n{'='*60}")
         print(f"PUBLICATION SUMMARY:")
         print(f"{'='*60}")
-        print_alignment_accuracy_report(rib_error_mag, sternum_error, info)
+        print_alignment_accuracy_report(rib_error_mag_full, sternum_error, info)
 
     # ==========================================================
     # 5. CALCULATE DISPLACEMENTS RELATIVE TO STERNUM
@@ -1304,21 +1515,20 @@ def align_prone_to_supine_optimal(
 
     if plot_for_debug:
         try:
-            # Plot aligned ribcage
+            # Plot full mesh alignment
             sternum_lists = [prone_sternum_transformed, sternum_supine]
             plot_all(
                 point_cloud=supine_ribcage_pc,
                 mesh_points=prone_ribcage_transformed,
                 anat_landmarks=sternum_lists,
-                # soft_tissue_landmarks=landmark_prone_transformed
             )
 
-            # Plot error visualization
+            # Error visualization - full mesh
             plot_evaluate_alignment(
                 supine_pts=supine_ribcage_pc,
                 transformed_prone_mesh=prone_ribcage_transformed,
-                distances=rib_error_mag,
-                idxs=mapped_idx,
+                distances=rib_error_mag_full,
+                idxs=mapped_idx_full,
                 worst_n=60,
                 cmap="viridis",
                 point_size=3,
@@ -1326,6 +1536,21 @@ def align_prone_to_supine_optimal(
                 show_scalar_bar=True,
                 return_data=False
             )
+
+            # Error visualization - selected elements only
+            if selected_elements is not None:
+                plot_evaluate_alignment(
+                    supine_pts=supine_ribcage_pc,
+                    transformed_prone_mesh=prone_selected_transformed,
+                    distances=rib_error_mag_selected,
+                    idxs=mapped_idx_selected,
+                    worst_n=60,
+                    cmap="viridis",
+                    point_size=3,
+                    arrow_scale=20,
+                    show_scalar_bar=True,
+                    return_data=False
+                )
         except Exception as e:
             print(f"Could not generate debug plots: {e}")
 
@@ -1445,12 +1670,18 @@ def align_prone_to_supine_optimal(
         'T_total': T_total,
         'R': R,
 
-        # Error metrics
+        # Error metrics - full mesh
         'ribcage_error_rmse': ribcage_error_rmse,
         'ribcage_error_mean': ribcage_error_mean,
         'ribcage_error_std': ribcage_error_std,
         'ribcage_inlier_rmse': ribcage_inlier_rmse,
         'sternum_error': sternum_error,
+
+        # Error metrics - selected elements
+        'selected_error_rmse': selected_error_rmse,
+        'selected_error_mean': selected_error_mean,
+        'selected_error_std': selected_error_std,
+        'selected_elements': selected_elements,
 
         # Transformed anatomical landmarks
         'sternum_prone_transformed': prone_sternum_transformed,
@@ -1524,6 +1755,10 @@ if __name__ == "__main__":
             subject=subject,
             prone_ribcage_mesh_path=prone_mesh_file,
             supine_ribcage_seg_path=supine_seg_file,
+            # Use automatic symmetric selection for balanced left-right coverage
+            auto_select_symmetric=True,
+            y_percentile_for_anterior=50.0,  # Use top 50% (anterior half)
+            # selected_elements=[0,1,2,6,7,8,9,10,14,15,16,17,18,22,23],  # Old manual selection
             orientation_flag='RAI',
-            plot_for_debug=True
+            plot_for_debug=True,
         )
