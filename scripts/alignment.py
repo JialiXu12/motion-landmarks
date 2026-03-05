@@ -1,4 +1,4 @@
-"""
+﻿"""
 Sternum-Fixed Alignment (Point-to-Point Only)
 
 This module provides an accurate and robust alignment method for
@@ -29,7 +29,7 @@ import pyvista as pv
 import mesh_tools
 from structures import Subject
 from readers import load_subject
-
+from surface_to_point_alignment import surface_to_point_align
 
 def print_alignment_accuracy_report(
         rib_error_mag: np.ndarray,
@@ -67,7 +67,7 @@ def print_alignment_accuracy_report(
     print(f"  Sternum Superior Error: {sternum_error:.4f} mm (fixed point)")
     print(f"  Ribcage Surface Alignment:")
     print(f"    RMSE: {rmse:.2f} mm")
-    print(f"    Mean ± SD: {mean_err:.2f} ± {std_err:.2f} mm")
+    print(f"    Mean +/- SD: {mean_err:.2f} +/- {std_err:.2f} mm")
     print(f"    Median [IQR]: {median_err:.2f} [{q25:.2f}-{q75:.2f}] mm")
     print(f"    Range: {min_err:.2f}-{max_err:.2f} mm")
     print(f"  Algorithm Performance:")
@@ -78,48 +78,11 @@ def print_alignment_accuracy_report(
     print("Recommended text for Methods section:")
     print("-" * 60)
     print(f"Prone-to-supine alignment achieved a ribcage surface RMSE of")
-    print(f"{rmse:.2f} mm (mean ± SD: {mean_err:.2f} ± {std_err:.2f} mm), with the")
+    print(f"{rmse:.2f} mm (mean +/- SD: {mean_err:.2f} +/- {std_err:.2f} mm), with the")
     print(f"sternum superior landmark fixed at the origin (0.00 mm error).")
     print(f"The median alignment error was {median_err:.2f} mm (IQR: {q25:.2f}-{q75:.2f} mm),")
     print(f"indicating good registration quality across the thoracic region.")
 
-
-def generate_alignment_report_latex_table(
-        rib_error_mag: np.ndarray,
-        sternum_error: float,
-        info: dict
-) -> str:
-    """
-    Generate LaTeX table code for alignment accuracy metrics.
-
-    Returns:
-        str: LaTeX table code ready for copy-paste into manuscript
-    """
-    mean_err = np.mean(rib_error_mag)
-    std_err = np.std(rib_error_mag)
-    rmse = np.sqrt(np.mean(rib_error_mag ** 2))
-    median_err = np.median(rib_error_mag)
-    q25 = np.percentile(rib_error_mag, 25)
-    q75 = np.percentile(rib_error_mag, 75)
-
-    latex = r"""
-\begin{table}[h]
-\centering
-\caption{Prone-to-Supine Alignment Accuracy}
-\label{tab:alignment_accuracy}
-\begin{tabular}{lc}
-\hline
-\textbf{Metric} & \textbf{Value (mm)} \\
-\hline
-Sternum Superior Error & 0.00 \\
-Ribcage RMSE & """ + f"{rmse:.2f}" + r""" \\
-Ribcage Mean $\pm$ SD & """ + f"{mean_err:.2f} $\\pm$ {std_err:.2f}" + r""" \\
-Ribcage Median [IQR] & """ + f"{median_err:.2f} [{q25:.2f}-{q75:.2f}]" + r""" \\
-\hline
-\end{tabular}
-\end{table}
-"""
-    return latex
 
 
 def aggregate_alignment_statistics(alignment_results_dict: dict) -> dict:
@@ -226,21 +189,21 @@ def print_cohort_alignment_report(cohort_stats: dict) -> None:
     print(f"    (max across subjects: {cohort_stats['sternum_error_max']:.4f} mm)")
 
     print(f"\n  Ribcage Surface Alignment:")
-    print(f"    RMSE: {cohort_stats['rmse_mean']:.2f} ± {cohort_stats['rmse_std']:.2f} mm")
+    print(f"    RMSE: {cohort_stats['rmse_mean']:.2f} +/- {cohort_stats['rmse_std']:.2f} mm")
     print(f"    Median [IQR]: {cohort_stats['rmse_median']:.2f} "
           f"[{cohort_stats['rmse_q25']:.2f}-{cohort_stats['rmse_q75']:.2f}] mm")
     print(f"    Range: {cohort_stats['rmse_min']:.2f}-{cohort_stats['rmse_max']:.2f} mm")
 
-    print(f"\n  Mean Error: {cohort_stats['mean_error_mean']:.2f} ± "
+    print(f"\n  Mean Error: {cohort_stats['mean_error_mean']:.2f} +/- "
           f"{cohort_stats['mean_error_std']:.2f} mm")
 
     if 'inlier_pct_mean' in cohort_stats:
         print(f"\nAlgorithm Performance:")
-        print(f"  Inlier Fraction: {cohort_stats['inlier_pct_mean']:.1f} ± "
+        print(f"  Inlier Fraction: {cohort_stats['inlier_pct_mean']:.1f} +/- "
               f"{cohort_stats['inlier_pct_std']:.1f} %")
 
     if 'iterations_mean' in cohort_stats:
-        print(f"  Iterations: {cohort_stats['iterations_mean']:.0f} ± "
+        print(f"  Iterations: {cohort_stats['iterations_mean']:.0f} +/- "
               f"{cohort_stats['iterations_std']:.0f}")
 
     print("\n" + "-"*70)
@@ -248,7 +211,7 @@ def print_cohort_alignment_report(cohort_stats: dict) -> None:
     print("-"*70)
     print(f"\nProne-to-supine alignment was performed using a sternum-fixed")
     print(f"iterative closest point algorithm. Across N={n} subjects, ribcage")
-    print(f"surface alignment achieved an RMSE of {cohort_stats['rmse_mean']:.2f} ± "
+    print(f"surface alignment achieved an RMSE of {cohort_stats['rmse_mean']:.2f} +/- "
           f"{cohort_stats['rmse_std']:.2f} mm")
     print(f"(median: {cohort_stats['rmse_median']:.2f} mm, "
           f"range: {cohort_stats['rmse_min']:.2f}-{cohort_stats['rmse_max']:.2f} mm),")
@@ -282,7 +245,7 @@ def cleanup_spine_region(
 
     The spine region is highly variable and not part of the ribcage surface
     we want to align. This removes points:
-    - Within ±x_spine_offset of the median X coordinate (spine centerline)
+    - Within +/-x_spine_offset of the median X coordinate (spine centerline)
     - Within y_spine_offset of the posterior edge
 
     Args:
@@ -306,12 +269,84 @@ def cleanup_spine_region(
     ]
 
     if verbose:
-        print(f"  → After removing spine region: {pc_data.shape[0]} points")
+        print(f"After removing spine region: {pc_data.shape[0]} points")
 
     if run_plot_all:
         plot_all(point_cloud=pc_data)
 
     return pc_data
+
+
+def selected_point_cloud(pc_data,params,run_plot_all):
+    z_voxels_bottom = params['z_voxels_bottom']
+    z_voxels_top = params['z_voxels_top']
+    x_spine_offset = params['x_spine_offset']
+    y_spine_offset = params['y_spine_offset']
+    x_lateral_margin = params['x_lateral_margin']
+    y_posterior_margin = params['y_posterior_margin']
+    z_inferior_margin = params['z_inferior_margin']
+    sor_k_neighbors = params['sor_k_neighbors']
+    sor_std_multiplier = params['sor_std_multiplier']
+
+    # ----------------------------------------------------
+    # II. Filtering Logic
+    # ----------------------------------------------------
+    print("original point cloud size:", pc_data.shape)
+    if run_plot_all:
+        plot_all(point_cloud=pc_data)
+
+    # supine_ribcage_pc = supine_ribcage_pc[supine_ribcage_pc[:, 0] > -120.]
+    # print("remove outlier near arm, supine ribcage point cloud size:", supine_ribcage_pc.shape)
+    # plot_all(point_cloud=supine_ribcage_pc)
+
+    # remove points on the top and bottom axial slices
+    supine_ribcage_pc = filter_point_cloud_asymmetric(
+        points=pc_data,
+        reference=pc_data,
+        tol_min=0,
+        tol_max=5,
+        axis=2
+    )
+    print("remove top and bottom axial slices, point cloud size:", pc_data.shape)
+    if run_plot_all:
+        plot_all(point_cloud=pc_data)
+
+    # remove points on the back side of the ribcage around the spine
+    supine_ribcage_pc = cleanup_spine_region(
+        pc_data=pc_data,
+        x_spine_offset=25,
+        y_spine_offset=60,
+        run_plot_all=True,
+        verbose=True
+    )
+    print("remove spine region, point cloud size:", pc_data.shape)
+    if run_plot_all:
+        plot_all(point_cloud=pc_data)
+        # pc_data = filter_point_cloud_asymmetric(
+    # x_offset = 100.
+    # y_median = np.median(supine_ribcage_pc[:, 1])
+    # y_offset = 50.
+    # supine_ribcage_pc = supine_ribcage_pc[
+    # (supine_ribcage_pc[:, 0] <= (x_median - x_offset)) |
+    # (supine_ribcage_pc[:, 0] >= (x_median + x_offset)) |
+    # (supine_ribcage_pc[:, 1] <= (y_median - y_offset)) |
+    # (supine_ribcage_pc[:, 1] >= (y_median + y_offset))
+    # ]
+    #
+    # plot_all(point_cloud=supine_ribcage_pc)
+
+    x_median = np.median(pc_data[:, 0])
+    pc_data = pc_data[
+        (pc_data[:, 0] <= (x_median - x_lateral_margin)) |
+        (pc_data[:, 0] >= (x_median + x_lateral_margin)) |
+        (pc_data[:, 1] < np.max(pc_data[:, 1]) - y_posterior_margin) |
+        (pc_data[:, 2] >= (np.min(pc_data[:, 2] + z_inferior_margin)))
+        ]
+
+    print("remove posterior inferior points, point cloud size:", pc_data.shape)
+    if run_plot_all:
+        plot_all(point_cloud=pc_data)
+
 
 
 def svd_rotation_point_to_point(
@@ -352,7 +387,9 @@ def optimal_sternum_fixed_alignment(
         max_iterations: int = 200,
         convergence_threshold: float = 1e-6,
         trim_percentage: float = 0.1,
-        verbose: bool = False
+        verbose: bool = False,
+        visualize_iterations: bool = False,
+        visualize_every_n: int = 10
 ) -> Tuple[np.ndarray, np.ndarray, Dict]:
     """
     Optimal alignment with sternum superior strictly fixed at origin (0,0,0).
@@ -377,6 +414,8 @@ def optimal_sternum_fixed_alignment(
         convergence_threshold: RMSE change threshold for convergence
         trim_percentage: reject this fraction of worst correspondences
         verbose: print progress
+        visualize_iterations: if True, show visualization during ICP iterations
+        visualize_every_n: show visualization every N iterations (default: 10)
 
     Returns:
         R_total: (3, 3) rotation matrix
@@ -406,6 +445,24 @@ def optimal_sternum_fixed_alignment(
     prev_rmse = np.inf
     iteration_history = []
 
+    # Visualize initial state before alignment
+    if visualize_iterations:
+        dists_init, idxs_init = tree.query(src)
+        valid_init = dists_init <= max_correspondence_distance
+        visualize_alignment_during_iteration(
+            source_centered=src,
+            target_centered=tgt_centered,
+            iteration=0,
+            correspondences=idxs_init,
+            correspondence_distances=dists_init,
+            valid_mask=valid_init,
+            max_correspondence_distance=max_correspondence_distance,
+            show_correspondences=True,
+            n_correspondence_lines=100
+        )
+
+    # Initialize iteration counter
+    it = 0
     for it in range(max_iterations):
         # Find correspondences
         dists, idxs = tree.query(src)
@@ -436,7 +493,7 @@ def optimal_sternum_fixed_alignment(
         R_total = R_delta @ R_total
 
         # Compute RMSE
-        dists_new, _ = tree.query(src)
+        dists_new, idxs_new = tree.query(src)
         valid_new = dists_new <= max_correspondence_distance
         rmse = np.sqrt(np.mean(dists_new[valid_new] ** 2)) if np.any(valid_new) else np.inf
 
@@ -450,10 +507,37 @@ def optimal_sternum_fixed_alignment(
         if verbose and (it < 5 or (it + 1) % 10 == 0):
             print(f"  Iter {it + 1}: RMSE={rmse:.4f} mm, inliers={np.sum(valid_new)}")
 
+        # Visualize at specified intervals
+        if visualize_iterations and ((it + 1) % visualize_every_n == 0 or it == 0):
+            visualize_alignment_during_iteration(
+                source_centered=src,
+                target_centered=tgt_centered,
+                iteration=it + 1,
+                correspondences=idxs_new,
+                correspondence_distances=dists_new,
+                valid_mask=valid_new,
+                max_correspondence_distance=max_correspondence_distance,
+                show_correspondences=True,
+                n_correspondence_lines=100
+            )
+
         # Check convergence
         if abs(prev_rmse - rmse) < convergence_threshold:
             if verbose:
                 print(f"  Converged at iteration {it + 1}")
+            # Visualize final state on convergence
+            if visualize_iterations:
+                visualize_alignment_during_iteration(
+                    source_centered=src,
+                    target_centered=tgt_centered,
+                    iteration=it + 1,
+                    correspondences=idxs_new,
+                    correspondence_distances=dists_new,
+                    valid_mask=valid_new,
+                    max_correspondence_distance=max_correspondence_distance,
+                    show_correspondences=True,
+                    n_correspondence_lines=100
+                )
             break
 
         prev_rmse = rmse
@@ -672,12 +756,12 @@ def optimal_sternum_fixed_alignment_2(
         # Stop if converged or patience exceeded
         if rmse_converged and rotation_converged:
             if verbose:
-                print(f"  ✓ Converged at iteration {it + 1} (RMSE and rotation stable)")
+                print(f"  “ Converged at iteration {it + 1} (RMSE and rotation stable)")
             break
         elif patience_exceeded:
             if verbose:
-                print(f"  ✓ Early stopping at iteration {it + 1} (no improvement for {patience} iterations)")
-                print(f"  → Returning best solution from iteration {best_iteration}")
+                print(f"  “ Early stopping at iteration {it + 1} (no improvement for {patience} iterations)")
+                print(f"  Returning best solution from iteration {best_iteration}")
             # Return best solution instead of current
             R_total = best_R
             src = best_src
@@ -685,8 +769,8 @@ def optimal_sternum_fixed_alignment_2(
             break
         elif std_increasing and it > 50:
             if verbose:
-                print(f"  ⚠ STD increasing detected at iteration {it + 1} (potential overfitting)")
-                print(f"  → Returning best solution from iteration {best_iteration}")
+                print(f"   STD increasing detected at iteration {it + 1} (potential overfitting)")
+                print(f"  Returning best solution from iteration {best_iteration}")
             # Return best solution to avoid overfitting
             R_total = best_R
             src = best_src
@@ -906,6 +990,7 @@ def get_mesh_elements(mesh):
 
     centers = []
     num_elements = mesh.elements.size()
+    print(f"INFO: Mesh has {mesh.elements.size()} elements")
 
     for i in range(num_elements):
         # Get surface coordinates for this element
@@ -955,18 +1040,23 @@ def get_mesh_elements_2(mesh):
     return centers_array, num_elements
 
 # #### center = morphic_mesh.elements[i].get_centroid()
-def plot_mesh_elements(mesh_points, centers_array, num_elements, ribcage_point_cloud=None):
+def plot_mesh_elements(mesh_points, centers_array, element_indices, ribcage_point_cloud=None):
     """
     Visualize element centers with labels,
     optionally including the mesh surface and ribcage point cloud.
 
     Args:
-        morphic_mesh: morphic.Mesh object
+        mesh_points: (N, 3) array of mesh point coordinates to display
+        centers_array: (M, 3) array of element center coordinates for labeling
+        element_indices
         ribcage_point_cloud: (N, 3) array of ribcage point cloud coordinates (optional)
 
     Returns:
         centers_array: (N, 3) array of element center coordinates
     """
+    # Determine labels for elements
+    labels = [str(i) for i in element_indices]
+
     # Visualize with PyVista
     plt = pv.Plotter()
 
@@ -995,7 +1085,7 @@ def plot_mesh_elements(mesh_points, centers_array, num_elements, ribcage_point_c
     # Add element center labels
     plt.add_point_labels(
         centers_array,
-        labels=[str(i) for i in range(num_elements)],
+        labels=labels,
         font_size=14,
         text_color='black',
         point_size=10,
@@ -1023,9 +1113,385 @@ def plot_mesh_elements(mesh_points, centers_array, num_elements, ribcage_point_c
     plt.show()
 
     return centers_array
-# ##
-# ##
-def get_surface_mesh_coords(morphic_mesh, res, elems=[]):
+
+
+def visualize_alignment_errors(
+        source_mesh_coords: np.ndarray,
+        target_pc: np.ndarray,
+        source_aligned: np.ndarray = None,
+        error_magnitudes: np.ndarray = None,
+        error_indices: np.ndarray = None,
+        source_sternum: np.ndarray = None,
+        target_sternum: np.ndarray = None,
+        selected_elements_coords: np.ndarray = None,
+        iteration: int = None,
+        title: str = "Alignment Visualization",
+        cmap: str = "coolwarm",
+        point_size: int = 4,
+        show_error_arrows: bool = True,
+        worst_n_arrows: int = 50,
+        show_sternum: bool = True,
+        show_legend: bool = True,
+        screenshot_path: str = None
+) -> None:
+    """
+    Visualize mesh and point cloud with alignment errors during alignment process.
+
+    Colors the source (prone) mesh by per-source-point distance to the nearest
+    target (supine) point (prone to supine query direction).
+
+    Args:
+        source_mesh_coords: (N, 3) source mesh coordinates (prone ribcage)
+        target_pc: (M, 3) target point cloud (supine ribcage)
+        source_aligned: (N, 3) aligned source coordinates (if None, uses source_mesh_coords)
+        error_magnitudes: (N,) per-source-point distance to nearest target point
+        error_indices: (N,) index into target_pc of nearest point for each source point
+        source_sternum: (3,) source sternum superior position
+        target_sternum: (3,) target sternum superior position
+        selected_elements_coords: (K, 3) coordinates of selected elements only (subset for alignment)
+        iteration: iteration number (for title display)
+        title: plot title
+        cmap: colormap for error visualization
+        point_size: size of point cloud points
+        show_error_arrows: whether to show arrows for worst errors
+        worst_n_arrows: number of worst error arrows to show
+        show_sternum: whether to show sternum positions
+        show_legend: whether to show legend
+        screenshot_path: if provided, save screenshot to this path
+    """
+    plotter = pv.Plotter()
+    plotter.set_background('white')
+
+    # Update title with iteration if provided
+    if iteration is not None:
+        title = f"{title} (Iteration {iteration})"
+    plotter.add_text(title, font_size=14, position='upper_left')
+
+    # Use aligned source if provided, otherwise use original
+    display_source = source_aligned if source_aligned is not None else source_mesh_coords
+
+    # --- Target Point Cloud (plain overlay) ---
+    plotter.add_points(
+        target_pc,
+        color='blue',
+        point_size=max(1, point_size - 2),
+        render_points_as_spheres=True,
+        opacity=0.3,
+        label='Target (Supine)'
+    )
+
+    # --- Source Mesh colored by error (prone to supine) ---
+    if error_magnitudes is not None:
+        source_cloud = pv.PolyData(display_source)
+        source_cloud['Alignment Error (mm)'] = error_magnitudes
+        plotter.add_points(
+            source_cloud,
+            scalars='Alignment Error (mm)',
+            cmap=cmap,
+            point_size=point_size,
+            render_points_as_spheres=True,
+            show_scalar_bar=True,
+            scalar_bar_args={
+                'title': 'Error (mm)',
+                'vertical': True,
+                'position_x': 0.85,
+                'position_y': 0.1,
+                'width': 0.1,
+                'height': 0.6
+            }
+        )
+    elif selected_elements_coords is not None:
+        # Full mesh in gray (not used for alignment)
+        plotter.add_points(
+            display_source,
+            color='lightgray',
+            point_size=max(1, point_size - 2),
+            render_points_as_spheres=True,
+            opacity=0.3,
+            label='Full Mesh (not used)'
+        )
+        # Selected elements in red (used for alignment)
+        plotter.add_points(
+            selected_elements_coords,
+            color='red',
+            point_size=point_size,
+            render_points_as_spheres=True,
+            label='Selected Elements (used)'
+        )
+    else:
+        # All mesh in red
+        plotter.add_points(
+            display_source,
+            color='red',
+            point_size=max(2, point_size - 1),
+            render_points_as_spheres=True,
+            label='Source Mesh (Prone)'
+        )
+
+    # --- Error Arrows (worst errors) ---
+    if show_error_arrows and error_magnitudes is not None and error_indices is not None:
+        # Find worst N source points by error magnitude
+        worst_n = min(worst_n_arrows, len(error_magnitudes))
+        worst_src_indices = np.argsort(error_magnitudes)[-worst_n:]
+
+        # Draw arrows from worst source points to their nearest target points
+        for src_idx in worst_src_indices:
+            start = display_source[src_idx]
+            end = target_pc[error_indices[src_idx]]
+            direction = end - start
+
+            error = error_magnitudes[src_idx]
+            plotter.add_arrows(
+                cent=start.reshape(1, 3),
+                direction=direction.reshape(1, 3),
+                mag=1.0,
+                color='orange' if error > 10 else 'yellow',
+            )
+
+    # --- Sternum Markers ---
+    if show_sternum:
+        if source_sternum is not None:
+            plotter.add_points(
+                source_sternum.reshape(1, 3),
+                color='green',
+                point_size=15,
+                render_points_as_spheres=True,
+                label='Source Sternum'
+            )
+        if target_sternum is not None:
+            plotter.add_points(
+                target_sternum.reshape(1, 3),
+                color='purple',
+                point_size=15,
+                render_points_as_spheres=True,
+                label='Target Sternum'
+            )
+
+    # --- Add Legend ---
+    if show_legend:
+        legend_entries = []
+        if selected_elements_coords is not None:
+            legend_entries.append(['Selected Elements', 'red'])
+            legend_entries.append(['Full Mesh', 'lightgray'])
+        else:
+            legend_entries.append(['Source Mesh', 'red'])
+
+        if error_magnitudes is None:
+            legend_entries.append(['Target PC', 'blue'])
+
+        if show_sternum:
+            if source_sternum is not None:
+                legend_entries.append(['Source Sternum', 'green'])
+            if target_sternum is not None:
+                legend_entries.append(['Target Sternum', 'purple'])
+
+        if legend_entries:
+            plotter.add_legend(legend_entries, bcolor='white')
+
+    # --- Statistics Text Box ---
+    if error_magnitudes is not None:
+        stats_text = (
+            f"Error Statistics:\n"
+            f"  Mean: {np.mean(error_magnitudes):.2f} mm\n"
+            f"  Std: {np.std(error_magnitudes):.2f} mm\n"
+            f"  RMSE: {np.sqrt(np.mean(error_magnitudes**2)):.2f} mm\n"
+            f"  Min: {np.min(error_magnitudes):.2f} mm\n"
+            f"  Max: {np.max(error_magnitudes):.2f} mm"
+        )
+        plotter.add_text(stats_text, font_size=10, position='lower_left')
+
+    plotter.add_axes()
+
+    # Save screenshot if path provided
+    if screenshot_path:
+        plotter.show(screenshot=screenshot_path, auto_close=True)
+    else:
+        plotter.show()
+
+
+def visualize_alignment_during_iteration(
+        source_centered: np.ndarray,
+        target_centered: np.ndarray,
+        iteration: int,
+        correspondences: np.ndarray = None,
+        correspondence_distances: np.ndarray = None,
+        valid_mask: np.ndarray = None,
+        max_correspondence_distance: float = 15.0,
+        show_correspondences: bool = True,
+        n_correspondence_lines: int = 100,
+        show_unused_points: bool = True
+) -> None:
+    """
+    Visualize alignment state during an ICP iteration (sternum-centered coordinates).
+
+    Shows the ENTIRE mesh/point cloud with UNUSED points in muted colors
+    and USED points (after trimming and max correspondence distance filtering)
+    highlighted in bright colors.
+
+    Args:
+        source_centered: (N, 3) source points centered on sternum (origin)
+        target_centered: (M, 3) target points centered on sternum (origin)
+        iteration: current iteration number
+        correspondences: (N,) indices of corresponding target points for each source
+        correspondence_distances: (N,) distances to corresponding points
+        valid_mask: (N,) boolean mask of valid correspondences (after trimming)
+        max_correspondence_distance: maximum distance for valid correspondences
+        show_correspondences: whether to draw lines between correspondences
+        n_correspondence_lines: number of correspondence lines to draw
+        show_unused_points: if True, show whole point cloud with unused in muted colors (default: True)
+    """
+    plotter = pv.Plotter()
+    plotter.set_background('white')
+    plotter.add_text(f"ICP Iteration {iteration}", font_size=14, position='upper_left')
+
+    # Get valid indices
+    if valid_mask is not None:
+        valid_indices = np.where(valid_mask)[0]
+        invalid_indices = np.where(~valid_mask)[0]
+    else:
+        valid_indices = np.arange(len(source_centered))
+        invalid_indices = np.array([], dtype=int)
+
+    # --- SOURCE POINTS (Prone mesh) ---
+    # FIRST: Show ALL source points in muted color (whole mesh/point cloud)
+    if show_unused_points and len(invalid_indices) > 0:
+        invalid_source = source_centered[invalid_indices]
+        plotter.add_points(
+            invalid_source,
+            color='lightgray',
+            point_size=3,
+            render_points_as_spheres=True,
+            opacity=0.4,
+            label='Source (not used)'
+        )
+
+    # SECOND: Highlight USED source points in bright color
+    if len(valid_indices) > 0:
+        valid_source = source_centered[valid_indices]
+
+        if correspondence_distances is not None:
+            # Color valid source points by correspondence distance
+            valid_distances = correspondence_distances[valid_indices]
+            source_cloud = pv.PolyData(valid_source)
+            source_cloud['Distance (mm)'] = valid_distances
+
+            plotter.add_points(
+                source_cloud,
+                scalars='Distance (mm)',
+                cmap='plasma',  # More visible colormap
+                point_size=6,
+                render_points_as_spheres=True,
+                show_scalar_bar=True,
+                scalar_bar_args={'title': 'Correspondence\nDistance (mm)'}
+            )
+        else:
+            plotter.add_points(
+                valid_source,
+                color='red',
+                point_size=6,
+                render_points_as_spheres=True,
+                label='Source (used for alignment)'
+            )
+
+    # --- TARGET POINTS (Supine point cloud) ---
+    if correspondences is not None and valid_mask is not None and len(valid_indices) > 0:
+        # Get target points that have valid correspondences
+        valid_correspondences = correspondences[valid_indices]
+        unique_target_indices = np.unique(valid_correspondences)
+
+        # FIRST: Show ALL target points in muted color (whole point cloud)
+        if show_unused_points:
+            all_target_indices = np.arange(len(target_centered))
+            unused_target_indices = np.setdiff1d(all_target_indices, unique_target_indices)
+            if len(unused_target_indices) > 0:
+                unused_target = target_centered[unused_target_indices]
+                plotter.add_points(
+                    unused_target,
+                    color='lightblue',
+                    point_size=3,
+                    render_points_as_spheres=True,
+                    opacity=0.3,
+                    label='Target (not used)'
+                )
+
+        # SECOND: Highlight USED target points in bright color
+        used_target = target_centered[unique_target_indices]
+        plotter.add_points(
+            used_target,
+            color='blue',
+            point_size=5,
+            render_points_as_spheres=True,
+            label='Target (used for alignment)'
+        )
+    else:
+        # No valid mask - show all target points
+        plotter.add_points(
+            target_centered,
+            color='blue',
+            point_size=4,
+            render_points_as_spheres=True,
+            label='Target (Supine)'
+        )
+
+    # --- Origin Marker (Sternum) ---
+    plotter.add_points(
+        np.array([[0, 0, 0]]),
+        color='green',
+        point_size=20,
+        render_points_as_spheres=True,
+        label='Origin (Sternum)'
+    )
+
+    # --- Correspondence Lines (only for used points) ---
+    if show_correspondences and correspondences is not None and len(valid_indices) > 0:
+        # Sample from valid correspondences only
+        if len(valid_indices) > n_correspondence_lines:
+            # Sample evenly from valid indices
+            sample_idx = valid_indices[::len(valid_indices)//n_correspondence_lines][:n_correspondence_lines]
+        else:
+            sample_idx = valid_indices
+
+        # Draw lines for sampled correspondences
+        lines = []
+        for src_idx in sample_idx:
+            tgt_idx = correspondences[src_idx]
+            start = source_centered[src_idx]
+            end = target_centered[tgt_idx]
+            lines.append([start, end])
+
+        if lines:
+            for line in lines:
+                plotter.add_lines(
+                    np.array(line),
+                    color='yellow',
+                    width=1
+                )
+
+    # --- Statistics (for used points only) ---
+    n_used_source = len(valid_indices)
+    n_total_source = len(source_centered)
+    n_used_target = len(np.unique(correspondences[valid_indices])) if correspondences is not None and len(valid_indices) > 0 else 0
+    n_total_target = len(target_centered)
+
+    if correspondence_distances is not None and len(valid_indices) > 0:
+        valid_dists = correspondence_distances[valid_indices]
+        stats_text = (
+            f"Iteration {iteration} Statistics:\n"
+            f"  Source (bright): {n_used_source}/{n_total_source} ({100*n_used_source/n_total_source:.1f}%)\n"
+            f"  Target (blue): {n_used_target}/{n_total_target} ({100*n_used_target/n_total_target:.1f}%)\n"
+            f"  Mean distance: {np.mean(valid_dists):.2f} mm\n"
+            f"  RMSE: {np.sqrt(np.mean(valid_dists**2)):.2f} mm\n"
+            f"  Max distance: {np.max(valid_dists):.2f} mm\n"
+            f"  Gray/Light = not used for alignment"
+        )
+        plotter.add_text(stats_text, font_size=10, position='lower_left')
+
+    plotter.add_legend(bcolor='white')
+    plotter.add_axes()
+    plotter.show()
+
+
+def get_surface_mesh_coords(morphic_mesh, res, elems=None):
     """
     Extracts the 3D coordinates of a surface mesh
 
@@ -1033,18 +1499,21 @@ def get_surface_mesh_coords(morphic_mesh, res, elems=[]):
     :type morphic_mesh: morphic.Mesh
     :param res: number of material points per element axis
     :type res: int
-    :param elems: specified elements to extract coordinates (leave empty if want all elements)
+    :param elems: specified elements to extract coordinates (None or empty list for all elements)
     :type elems: list
     :return: mesh_coords
     :rtype: ndarray
     """
+    # Handle mutable default argument
+    if elems is None:
+        elems = []
 
     #   local coordinates for each element
     Xi = morphic_mesh.grid(res, method='center')
     NPPE = Xi.shape[0]
 
     #   if looking at all elements of mesh
-    if elems == []:
+    if len(elems) == 0:
 
         #   evaluate spatial coordinates
         NE = morphic_mesh.elements.size()
@@ -1065,70 +1534,6 @@ def get_surface_mesh_coords(morphic_mesh, res, elems=[]):
     return mesh_coords
 
 
-def select_anterior_elements_symmetric(
-        morphic_mesh,
-        y_percentile: float = 50.0,
-        verbose: bool = True
-) -> list:
-    """
-    Automatically select anterior ribcage elements symmetrically for both sides.
-
-    This function identifies elements that are:
-    1. In the anterior region (below median Y coordinate - more negative Y = more anterior)
-    2. Balanced between left and right sides (symmetric selection based on X coordinate)
-
-    Args:
-        morphic_mesh: morphic.Mesh object
-        y_percentile: Percentile threshold for Y coordinate (default 50 = median).
-                     Elements with Y below this percentile are considered anterior.
-        verbose: Print selection details
-
-    Returns:
-        List of element indices for symmetric anterior selection
-    """
-    # Get element centers
-    centers_array, num_elements = get_mesh_elements(morphic_mesh)
-
-    # Find the median X (left-right axis) and Y (anterior-posterior axis)
-    x_median = np.median(centers_array[:, 0])
-    y_threshold = np.percentile(centers_array[:, 1], y_percentile)
-
-    # Classify elements by side (left/right based on X relative to median)
-    left_elements = []  # X > median (positive X = left in RAI)
-    right_elements = []  # X < median (negative X = right in RAI)
-
-    for i in range(num_elements):
-        center = centers_array[i]
-        # Check if element is anterior (Y below threshold)
-        if center[1] < y_threshold:
-            if center[0] >= x_median:
-                left_elements.append((i, center))
-            else:
-                right_elements.append((i, center))
-
-    # Sort by distance from midline to ensure symmetric pairing
-    left_elements.sort(key=lambda x: abs(x[1][0] - x_median))
-    right_elements.sort(key=lambda x: abs(x[1][0] - x_median))
-
-    # Take equal number from each side for symmetry
-    n_per_side = min(len(left_elements), len(right_elements))
-
-    selected_left = [e[0] for e in left_elements[:n_per_side]]
-    selected_right = [e[0] for e in right_elements[:n_per_side]]
-
-    selected_elements = sorted(selected_left + selected_right)
-
-    if verbose:
-        print(f"\n=== Symmetric Element Selection ===")
-        print(f"  X median (left-right): {x_median:.1f}")
-        print(f"  Y threshold (anterior): {y_threshold:.1f}")
-        print(f"  Left side elements: {selected_left}")
-        print(f"  Right side elements: {selected_right}")
-        print(f"  Total selected: {len(selected_elements)}/{num_elements}")
-        print(f"  Selected elements: {selected_elements}")
-
-    return selected_elements
-
 
 def get_mesh_with_selected_elements(
         morphic_mesh,
@@ -1137,10 +1542,6 @@ def get_mesh_with_selected_elements(
 ) -> np.ndarray:
     """
     Return mesh coordinates for only the selected elements.
-
-    Use this after plot_mesh_elements to pick which elements (e.g. anterior
-    ribcage only) should be used for alignment. Elements not in the list
-    are excluded from the returned point cloud.
 
     Args:
         morphic_mesh: morphic.Mesh object
@@ -1164,9 +1565,70 @@ def get_mesh_with_selected_elements(
     mesh_coords = get_surface_mesh_coords(morphic_mesh, res=res, elems=selected_elements)
 
     print(f"Selected {len(selected_elements)}/{num_elements} elements "
-          f"→ {mesh_coords.shape[0]} points")
+          f"-> {mesh_coords.shape[0]} points")
 
     return mesh_coords
+
+
+def filter_point_cloud_to_match_mesh_region(
+        point_cloud: np.ndarray,
+        mesh_region_coords: np.ndarray,
+        pc_sternum_sup: np.ndarray,
+        mesh_sternum_sup: np.ndarray,
+        padding: float = 30.0,
+        verbose: bool = True,
+) -> np.ndarray:
+    """
+    Filter a point cloud to the spatial region covered by selected mesh elements.
+
+    Both the point cloud and mesh coordinates are shifted to sternum-centered
+    space before computing the bounding box, so the spatial comparison is
+    consistent even when the two datasets have different world-space origins.
+
+    The bounding box of the mesh region is expanded by ``padding`` on every
+    side so the point cloud is a slight superset of the mesh. This ensures
+    every mesh point can find its true nearest neighbour during ICP.
+
+    Args:
+        point_cloud:       (M, 3) target point cloud (e.g. supine ribcage)
+        mesh_region_coords: (N, 3) mesh coordinates for the selected elements
+        pc_sternum_sup:    (3,) sternum superior position for the point cloud
+        mesh_sternum_sup:  (3,) sternum superior position for the mesh
+        padding:           extra margin (mm) on each side of the bounding box
+                           (default 15 mm  one rib spacing)
+        verbose:           print filtering summary
+
+    Returns:
+        (K, 3) filtered point cloud (K <= M)
+    """
+    pc_sternum = np.asarray(pc_sternum_sup, dtype=np.float64).flatten()
+    mesh_sternum = np.asarray(mesh_sternum_sup, dtype=np.float64).flatten()
+
+    # Centre both on their respective sternums
+    mesh_centered = mesh_region_coords - mesh_sternum
+    pc_centered = point_cloud - pc_sternum
+
+    # Bounding box of the mesh region (in sternum-centered space)
+    bbox_min = mesh_centered.min(axis=0) - padding
+    bbox_max = mesh_centered.max(axis=0) + padding
+
+    # Keep points inside the padded bounding box
+    inside = np.all(
+        (pc_centered >= bbox_min) & (pc_centered <= bbox_max),
+        axis=1,
+    )
+    filtered = point_cloud[inside]
+
+    if verbose:
+        print(f"\n=== Point Cloud Region Filter ===")
+        print(f"  Mesh region bbox (sternum-centered, with {padding:.0f}mm padding):")
+        print(f"    X: [{bbox_min[0]:.1f}, {bbox_max[0]:.1f}]")
+        print(f"    Y: [{bbox_min[1]:.1f}, {bbox_max[1]:.1f}]")
+        print(f"    Z: [{bbox_min[2]:.1f}, {bbox_max[2]:.1f}]")
+        print(f"  Points: {len(point_cloud)} Filtered: {len(filtered)} "
+              f"({len(filtered)/len(point_cloud)*100:.0f}% kept)")
+
+    return filtered
 
 
 def align_prone_to_supine_optimal(
@@ -1179,8 +1641,8 @@ def align_prone_to_supine_optimal(
         max_iterations: int = 500,
         trim_percentage: float = 0.1,
         selected_elements: list = None,
-        auto_select_symmetric: bool = False,
-        y_percentile_for_anterior: float = 50.0,
+        visualize_iterations: bool = False,
+        visualize_every_n: int = 10,
         verbose: bool = True
 ) -> dict:
     """
@@ -1188,6 +1650,10 @@ def align_prone_to_supine_optimal(
 
     This function can be called directly from main.py and provides
     the same interface as align_prone_to_supine and align_prone_to_supine_fixed_sternum.
+
+    Element selection:
+        Pass selected_elements=[0,1,2,...] with specific element indices.
+        If not set, all elements are used.
 
     Args:
         subject: Subject object containing scan data and landmarks
@@ -1199,19 +1665,10 @@ def align_prone_to_supine_optimal(
         max_iterations: Max ICP iterations (default: 500)
         trim_percentage: Fraction of worst correspondences to trim during optimization.
                         This is FIXED for all subjects (default: 0.1 = 10%).
-                        For scientific reporting: "Outlier rejection used 10% trimming."
-                        Note: The final inlier percentage (points within 15mm after alignment)
-                        will vary by subject quality but trimming is always consistent.
-        selected_elements: List of element indices to use for alignment (e.g. [0,1,2,5]).
-                          Use plot_mesh_elements to identify which elements are anterior.
-                          When None, all elements are used. When provided, only these
-                          elements contribute to ICP alignment. The full mesh is still
-                          used for visualization and error reporting.
-        auto_select_symmetric: If True, automatically select anterior elements with
-                              balanced left-right coverage. This overrides selected_elements.
-        y_percentile_for_anterior: When auto_select_symmetric=True, this percentile
-                                  determines the Y threshold for anterior selection.
-                                  Default 50 = median (top half of anterior region).
+        selected_elements: List of element indices for alignment (e.g. [0,1,2,5]).
+                          If None, all elements are used.
+        visualize_iterations: If True, show visualization during ICP iterations
+        visualize_every_n: Show visualization every N iterations (default: 10)
         verbose: Print progress information
 
     Returns:
@@ -1230,7 +1687,7 @@ def align_prone_to_supine_optimal(
 
     if verbose:
         print(f"\n{'='*60}")
-        print(f"STERNUM-FIXED ALIGNMENT (Optimal SVD Method)")
+        print(f"STERNUM-FIXED ALIGNMENT")
         print(f"Subject: {subject.subject_id}")
         print(f"{'='*60}")
 
@@ -1254,8 +1711,8 @@ def align_prone_to_supine_optimal(
     # Get registrar landmarks
     prone_scan_data = subject.scans["prone"]
     supine_scan_data = subject.scans["supine"]
-    landmark_prone_ave_raw = get_landmarks_as_array(prone_scan_data, "average")
-    landmark_supine_ave_raw = get_landmarks_as_array(supine_scan_data, "average")
+    landmark_prone_ave_raw = get_landmarks_as_array(prone_scan_data, "anthony")
+    landmark_supine_ave_raw = get_landmarks_as_array(supine_scan_data, "anthony")
 
     # Load prone ribcage mesh
     prone_ribcage = morphic.Mesh(str(prone_ribcage_mesh_path))
@@ -1267,84 +1724,59 @@ def align_prone_to_supine_optimal(
         str(supine_ribcage_seg_path), orientation_flag, swap_axes=True
     )
     supine_ribcage_pc = extract_contour_points(supine_ribcage_mask, 20000)
-
+    plot_all(point_cloud=supine_ribcage_pc)
     # Get element centers and visualize (use this to decide which elements to select)
-    centers_array, num_elements = get_mesh_elements(prone_ribcage)
-    plot_mesh_elements(prone_ribcage_mesh_coords, centers_array, num_elements, supine_ribcage_pc)
+    centers_array, num_elements = get_mesh_elements_2(prone_ribcage)
+    plot_mesh_elements(prone_ribcage_mesh_coords, centers_array, range(num_elements))
 
-    # Select subset of mesh elements for alignment (e.g. anterior ribcage only)
-    # Priority: auto_select_symmetric > selected_elements > all elements
-    if auto_select_symmetric:
-        # Automatically select anterior elements with balanced left-right coverage
-        selected_elements = select_anterior_elements_symmetric(
-            prone_ribcage,
-            y_percentile=y_percentile_for_anterior,
-            verbose=verbose
-        )
+    # Select subset of mesh elements for alignment
+    # Otherwise, use all elements
+
+    if selected_elements is not None:
         prone_ribcage_alignment_coords = get_mesh_with_selected_elements(
             prone_ribcage, selected_elements, res=26
         )
-        if plot_for_debug:
-            plot_mesh_elements(prone_ribcage_alignment_coords, centers_array, num_elements, supine_ribcage_pc)
-    elif selected_elements is not None:
-        prone_ribcage_alignment_coords = get_mesh_with_selected_elements(
-            prone_ribcage, selected_elements, res=26
-        )
-        plot_mesh_elements(prone_ribcage_alignment_coords, centers_array, num_elements, supine_ribcage_pc)
-
         if verbose:
             print(f"  Using {len(selected_elements)}/{num_elements} elements for alignment")
             print(f"  Selected elements: {selected_elements}")
             print(f"  Alignment points: {prone_ribcage_alignment_coords.shape[0]} "
                   f"(full mesh: {prone_ribcage_mesh_coords.shape[0]})")
+        if plot_for_debug:
+            selected_centers = centers_array[selected_elements]
+            plot_mesh_elements(prone_ribcage_alignment_coords, selected_centers,
+                               selected_elements)
     else:
+        # No selection - use all elements
         prone_ribcage_alignment_coords = prone_ribcage_mesh_coords
         if verbose:
             print(f"  Using all {num_elements} elements for alignment")
 
-    # Clean up the supine point cloud by removing problematic regions
-    # Step 1: Remove top and bottom axial slices
-    supine_ribcage_pc = filter_point_cloud_asymmetric(
-        points=supine_ribcage_pc,
-        reference=supine_ribcage_pc,
-        tol_min=0,
-        tol_max=5,
-        axis=2
-    )
-
-    # # Step 2: Remove spine region
-    # supine_ribcage_pc = cleanup_spine_region(
-    #     pc_data=supine_ribcage_pc,
-    #     x_spine_offset=25,
-    #     y_spine_offset=60,
-    #     run_plot_all=True,
-    #     verbose=verbose
-    # )
-
-    if verbose:
-        print(f"\nData loaded (after cleanup):")
-        print(f"  Prone ribcage points: {len(prone_ribcage_mesh_coords)}")
-        print(f"  Supine ribcage points: {len(supine_ribcage_pc)}")
-        print(f"  Landmarks (average): {len(landmark_prone_ave_raw)}")
-
-    # ==========================================================
-    # 2. RUN OPTIMAL STERNUM-FIXED ALIGNMENT
-    # ==========================================================
-
-    R, aligned_prone_centered, info = optimal_sternum_fixed_alignment(
-        source_pts=prone_ribcage_alignment_coords,
+    # ==============================================================
+    # 2. Run plane-to-point alignment
+    # ==============================================================
+    # Mutual region filtering (target PC + reciprocal source filtering)
+    # is handled inside surface_to_point_align when target_region_filter=True.
+    R, T_total, info = surface_to_point_align(
+        vl_id=subject.subject_id,
+        mesh=prone_ribcage,
         target_pts=supine_ribcage_pc,
         source_sternum_sup=sternum_prone[0],
         target_sternum_sup=sternum_supine[0],
-        max_correspondence_distance=max_correspondence_distance,
+        max_distance=max_correspondence_distance,
         max_iterations=max_iterations,
-        convergence_threshold=1e-6,  # Relaxed for robustness
-        trim_percentage=trim_percentage,  # Pass through from function parameter
-        # patience=10,  # Early stopping patience
-        # rotation_threshold=1e-6,  # Rotation convergence
-        # monitor_std=False,  # Monitor STD for overfitting
-        verbose=verbose
+        convergence_threshold=1e-6,
+        trim_percentage=trim_percentage,
+        res=10,
+        verbose=verbose,
+        elems=selected_elements,
+        point_to_point_weight=0.0,
+        target_region_filter=True,
+        target_region_padding=15.0,
+        target_region_padding_inferior=0.0,
     )
+
+    # Filtered supine PC from alignment (same region as selected mesh elements)
+    supine_ribcage_pc_alignment = info['target_pts_filtered']
 
     # ==========================================================
     # 3. TRANSFORM ALL PRONE DATA TO SUPINE FRAME
@@ -1357,7 +1789,7 @@ def align_prone_to_supine_optimal(
     target_anchor = sternum_supine[0]
 
     # Transform anatomical landmarks
-    prone_sternum_transformed = apply_transform_to_coords(
+    sternum_prone_transformed = apply_transform_to_coords(
         sternum_prone, R, source_anchor, target_anchor
     )
     nipple_prone_transformed = apply_transform_to_coords(
@@ -1374,6 +1806,11 @@ def align_prone_to_supine_optimal(
         prone_ribcage_mesh_coords, R, source_anchor, target_anchor
     )
 
+    # Transform element centers for visualization
+    centers_array_transformed = apply_transform_to_coords(
+        centers_array, R, source_anchor, target_anchor
+    )
+
     # Transform selected elements (same as full when no selection)
     if selected_elements is not None:
         prone_selected_transformed = apply_transform_to_coords(
@@ -1382,30 +1819,42 @@ def align_prone_to_supine_optimal(
     else:
         prone_selected_transformed = prone_ribcage_transformed
 
-    # Transform supine ribcage point cloud for visualisation
-    supine_ribcage_transformed = inverse_transform_to_source_frame(supine_ribcage_pc, R, source_anchor, target_anchor)
-    plot_mesh_elements(prone_ribcage_mesh_coords, centers_array, num_elements, supine_ribcage_transformed)
+    # Visualize alignment results with transformed mesh and element centers
+    if selected_elements is not None:
+        plot_mesh_elements(prone_selected_transformed, centers_array_transformed[selected_elements],
+                          selected_elements, supine_ribcage_pc_alignment)
+
+    plot_mesh_elements(prone_ribcage_transformed, centers_array_transformed,
+                      range(num_elements), supine_ribcage_pc)
 
     # ==========================================================
     # 4. CALCULATE ERRORS AND METRICS
     # ==========================================================
 
     # Sternum error (should be near zero)
-    sternum_error = np.linalg.norm(prone_sternum_transformed[0] - sternum_supine[0])
+    sternum_error = np.linalg.norm(sternum_prone_transformed[0] - sternum_supine[0])
 
-    # --- Full mesh errors ---
+    # --- Full mesh errors (prone to supine: for each transformed prone point,
+    #     find nearest supine point. Consistent with ICP internal direction.) ---
     error_full, mapped_idx_full = breast_metadata.closest_distances(
-        supine_ribcage_pc, prone_ribcage_transformed
+        prone_ribcage_transformed, supine_ribcage_pc
     )
     rib_error_mag_full = np.linalg.norm(error_full, axis=1)
 
     ribcage_error_mean = float(np.mean(rib_error_mag_full))
     ribcage_error_std = float(np.std(rib_error_mag_full))
     ribcage_error_rmse = float(np.sqrt(np.mean(rib_error_mag_full ** 2)))
+    median_err = np.median(rib_error_mag_full)
+    q25 = np.percentile(rib_error_mag_full, 25)
+    q75 = np.percentile(rib_error_mag_full, 75)
 
-    # --- Selected elements errors ---
+
+    # --- Selected elements errors (prone to supine) ---
+    # IMPORTANT: Compare selected prone mesh to the FILTERED supine point cloud
+    # that corresponds to the same anatomical region. This gives the "true"
+    # alignment quality for the selected region.
     error_selected, mapped_idx_selected = breast_metadata.closest_distances(
-        supine_ribcage_pc, prone_selected_transformed
+        prone_selected_transformed, supine_ribcage_pc_alignment  # Use filtered!
     )
     rib_error_mag_selected = np.linalg.norm(error_selected, axis=1)
 
@@ -1413,8 +1862,10 @@ def align_prone_to_supine_optimal(
     selected_error_std = float(np.std(rib_error_mag_selected))
     selected_error_rmse = float(np.sqrt(np.mean(rib_error_mag_selected ** 2)))
 
-    # Also keep inlier RMSE for comparison (used during optimization)
+    # Also keep inlier metrics for comparison
     ribcage_inlier_rmse = info['euclidean_rmse']
+    ribcage_inlier_mean = info['euclidean_mean']
+    ribcage_inlier_std = info['euclidean_std']
 
     if verbose:
         print(f"\n{'='*60}")
@@ -1423,13 +1874,15 @@ def align_prone_to_supine_optimal(
         print(f"  Sternum error: {sternum_error:.6f} mm (should be ~0)")
         print(f"  --- Full mesh ({prone_ribcage_mesh_coords.shape[0]} pts) ---")
         print(f"    RMSE: {ribcage_error_rmse:.4f} mm")
-        print(f"    Mean ± SD: {ribcage_error_mean:.4f} ± {ribcage_error_std:.4f} mm")
+        print(f"    Mean +/- SD: {ribcage_error_mean:.4f} +/- {ribcage_error_std:.4f} mm")
         if selected_elements is not None:
             print(f"  --- Selected elements ({prone_ribcage_alignment_coords.shape[0]} pts) ---")
             print(f"    RMSE: {selected_error_rmse:.4f} mm")
-            print(f"    Mean ± SD: {selected_error_mean:.4f} ± {selected_error_std:.4f} mm")
-        print(f"  --- ICP inlier RMSE: {ribcage_inlier_rmse:.4f} mm ---")
-        print(f"  Final correspondences within 15mm: {info['n_inliers']}/{info['n_total_source']} ({info['inlier_fraction']*100:.1f}%)")
+            print(f"    Mean +/- SD: {selected_error_mean:.4f} +/- {selected_error_std:.4f} mm")
+        print(f"  --- ICP inlier metrics ---")
+        print(f"    RMSE: {ribcage_inlier_rmse:.4f} mm")
+        print(f"    Mean +/- SD: {ribcage_inlier_mean:.4f} +/- {ribcage_inlier_std:.4f} mm")
+        # print(f"  Final correspondences within 15mm: {info['n_inliers']}/{info['n_total_source']} ({info['inlier_fraction']*100:.1f}%)")
         print(f"  Note: Trim percentage (fixed at {trim_percentage*100:.0f}%) was applied during optimization")
         print(f"  Iterations: {info['iterations']}")
 
@@ -1446,7 +1899,7 @@ def align_prone_to_supine_optimal(
     #       By subtracting the sternum position, we convert to STERNUM-CENTERED
     #       coordinates where sternum is at (0, 0, 0).
 
-    ref_sternum_prone = prone_sternum_transformed[0]
+    ref_sternum_prone = sternum_prone_transformed[0]
     ref_sternum_supine = sternum_supine[0]
 
     # Landmark positions relative to sternum (now sternum-centered)
@@ -1516,28 +1969,48 @@ def align_prone_to_supine_optimal(
     if plot_for_debug:
         try:
             # Plot full mesh alignment
-            sternum_lists = [prone_sternum_transformed, sternum_supine]
+            sternum_lists = [sternum_prone_transformed, sternum_supine]
             plot_all(
                 point_cloud=supine_ribcage_pc,
                 mesh_points=prone_ribcage_transformed,
                 anat_landmarks=sternum_lists,
             )
-
-            # Error visualization - full mesh
-            plot_evaluate_alignment(
-                supine_pts=supine_ribcage_pc,
-                transformed_prone_mesh=prone_ribcage_transformed,
-                distances=rib_error_mag_full,
-                idxs=mapped_idx_full,
-                worst_n=60,
-                cmap="viridis",
-                point_size=3,
-                arrow_scale=20,
-                show_scalar_bar=True,
-                return_data=False
+            '''
+            # Visualize alignment errors with only parts used for alignment
+            # Colors prone mesh by distance to nearest supine point (prone to supine)
+            visualize_alignment_errors(
+                source_mesh_coords=prone_ribcage_transformed,
+                target_pc=supine_ribcage_pc,
+                source_aligned=prone_ribcage_transformed,
+                error_magnitudes=rib_error_mag_full,
+                error_indices=mapped_idx_full,
+                source_sternum=sternum_prone_transformed[0],
+                target_sternum=sternum_supine[0],
+                selected_elements_coords=prone_selected_transformed if selected_elements is not None else None,
+                title=f"Alignment Errors - Subject {subject.subject_id}",
+                cmap="coolwarm",
+                point_size=4,
+                show_error_arrows=True,
+                worst_n_arrows=50,
+                show_sternum=True,
+                show_legend=True
             )
 
-            # Error visualization - selected elements only
+            # # Error visualization - full mesh (prone tosupine)
+            # plot_evaluate_alignment(
+            #     supine_pts=supine_ribcage_pc,
+            #     transformed_prone_mesh=prone_ribcage_transformed,
+            #     distances=rib_error_mag_full,
+            #     idxs=mapped_idx_full,
+            #     worst_n=60,
+            #     cmap="viridis",
+            #     point_size=3,
+            #     arrow_scale=20,
+            #     show_scalar_bar=True,
+            #     return_data=False
+            # )
+
+            # Error visualization - selected elements only (prone to supine)
             if selected_elements is not None:
                 plot_evaluate_alignment(
                     supine_pts=supine_ribcage_pc,
@@ -1551,12 +2024,15 @@ def align_prone_to_supine_optimal(
                     show_scalar_bar=True,
                     return_data=False
                 )
+                
+            '''
         except Exception as e:
             print(f"Could not generate debug plots: {e}")
 
-    title_sternum = "Landmark Displacement Relative to Sternal Superior (Jugular Notch)"
-    lm_pos_left_rel_sternum = lm_pos_prone_rel_sternum[is_left_breast]
-    lm_pos_right_rel_sternum = lm_pos_prone_rel_sternum[~is_left_breast]
+
+    # title_sternum = "Landmark Displacement Relative to Sternal Superior (Jugular Notch)"
+    # lm_pos_left_rel_sternum = lm_pos_prone_rel_sternum[is_left_breast]
+    # lm_pos_right_rel_sternum = lm_pos_prone_rel_sternum[~is_left_breast]
     # plot_vector_three_views(lm_pos_left_rel_sternum, lm_disp_left,
     #                         lm_pos_right_rel_sternum, lm_disp_right, title_sternum)
 
@@ -1605,7 +2081,7 @@ def align_prone_to_supine_optimal(
             return np.array([scan_obj.getPixelCoordinates(p) for p in points])
 
         # Convert Reference Points
-        sternum_prone_px = get_px_coords(prone_scan_transformed, prone_sternum_transformed)
+        sternum_prone_px = get_px_coords(prone_scan_transformed, sternum_prone_transformed)
         sternum_supine_px = get_px_coords(supine_scan, sternum_supine)
 
         # Convert Landmarks (Using the AVE variables consistently)
@@ -1613,6 +2089,20 @@ def align_prone_to_supine_optimal(
         lm_supine_px = get_px_coords(supine_scan, landmark_supine_ave_raw)
 
         # %%   plot
+        breast_metadata.visualise_alignment_with_landmarks(
+            supine_image_sitk, prone_image_transformed, sternum_supine_px[0], sternum_prone_px[0], orientation='axial')
+        breast_metadata.visualise_alignment_with_landmarks(
+            supine_image_sitk, prone_image_transformed, sternum_supine_px[0], sternum_prone_px[0], orientation='sagittal')
+        breast_metadata.visualise_alignment_with_landmarks(
+            supine_image_sitk, prone_image_transformed, sternum_supine_px[0], sternum_prone_px[0], orientation='coronal')
+
+        breast_metadata.visualise_alignment_with_landmarks(
+            supine_image_sitk, prone_image_transformed, sternum_supine_px[1], sternum_prone_px[1], orientation='axial')
+        breast_metadata.visualise_alignment_with_landmarks(
+            supine_image_sitk, prone_image_transformed, sternum_supine_px[1], sternum_prone_px[1], orientation='sagittal')
+        breast_metadata.visualise_alignment_with_landmarks(
+            supine_image_sitk, prone_image_transformed, sternum_supine_px[1], sternum_prone_px[1], orientation='coronal')
+
         # plot prone and supine ribcage point clouds before and after alignment
         plotter = pv.Plotter()
         plotter.add_text("Landmark Displacement After Alignment", font_size=24)
@@ -1636,7 +2126,7 @@ def align_prone_to_supine_optimal(
         plotter.add_points(supine_ribcage_pc, color="tan", label='Point cloud', point_size=2,
                            render_points_as_spheres=True
                            )
-        plotter.add_points(prone_sternum_transformed, render_points_as_spheres=True, color='black', point_size=10,
+        plotter.add_points(sternum_prone_transformed, render_points_as_spheres=True, color='black', point_size=10,
                            label='Aligned Prone Sternum'
                            )
         plotter.add_points(sternum_supine, render_points_as_spheres=True, color='blue', point_size=10,
@@ -1675,16 +2165,18 @@ def align_prone_to_supine_optimal(
         'ribcage_error_mean': ribcage_error_mean,
         'ribcage_error_std': ribcage_error_std,
         'ribcage_inlier_rmse': ribcage_inlier_rmse,
+        'ribcage_inlier_mean': ribcage_inlier_mean,
+        'ribcage_inlier_std': ribcage_inlier_std,
         'sternum_error': sternum_error,
 
-        # Error metrics - selected elements
-        'selected_error_rmse': selected_error_rmse,
-        'selected_error_mean': selected_error_mean,
-        'selected_error_std': selected_error_std,
-        'selected_elements': selected_elements,
+        # # Error metrics - selected elements
+        # 'selected_error_rmse': selected_error_rmse,
+        # 'selected_error_mean': selected_error_mean,
+        # 'selected_error_std': selected_error_std,
+        # 'selected_elements': selected_elements,
 
         # Transformed anatomical landmarks
-        'sternum_prone_transformed': prone_sternum_transformed,
+        'sternum_prone_transformed': sternum_prone_transformed,
         'sternum_supine': sternum_supine,
         'nipple_prone_transformed': nipple_prone_transformed,
         'nipple_supine': nipple_supine,
@@ -1726,7 +2218,7 @@ def align_prone_to_supine_optimal(
 
 
 if __name__ == "__main__":
-    vl_ids = [22]
+    vl_ids = [9]
     ROOT_PATH_MRI = Path(r'U:\projects\volunteer_camri\old_data\mri_t2')
     SOFT_TISSUE_ROOT = Path(r'U:\projects\dashboard\picker_points')
     ANATOMICAL_JSON_BASE_ROOT = Path(r"U:\sandbox\jxu759\volunteer_seg\results")
@@ -1755,10 +2247,15 @@ if __name__ == "__main__":
             subject=subject,
             prone_ribcage_mesh_path=prone_mesh_file,
             supine_ribcage_seg_path=supine_seg_file,
-            # Use automatic symmetric selection for balanced left-right coverage
-            auto_select_symmetric=True,
-            y_percentile_for_anterior=50.0,  # Use top 50% (anterior half)
-            # selected_elements=[0,1,2,6,7,8,9,10,14,15,16,17,18,22,23],  # Old manual selection
+            # Manual element selection (or None to use all elements)
+            # selected_elements=[0, 1, 6, 7, 8, 9, 14, 15],
+            selected_elements=[0, 1, 6, 7, 8, 9, 14, 15, 16, 17, 22, 23],
             orientation_flag='RAI',
             plot_for_debug=True,
-        )
+            # max_correspondence_distance=15.0,  # Max distance for valid correspondences (mm)
+            max_correspondence_distance=1e6,
+            trim_percentage=0,  # Reject worst 10% of correspondences
+            visualize_iterations=True,
+            visualize_every_n=50)
+
+
