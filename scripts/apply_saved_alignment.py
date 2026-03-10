@@ -520,7 +520,7 @@ if __name__ == "__main__":
         description="Apply saved alignment, compute displacements, save to Excel."
     )
     parser.add_argument(
-        "--vl_id", type=int, nargs='+', default=[11],
+        "--vl_id", type=int, nargs='+', default=[15],
         help="Subject VL ID number(s) (default: 9)"
     )
     parser.add_argument(
