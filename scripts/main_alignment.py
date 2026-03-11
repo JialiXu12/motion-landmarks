@@ -49,13 +49,15 @@ OUTPUT_DIR_T_MATRIX.mkdir(parents=True, exist_ok=True)
 # VL_IDS = [32,34,35,36,37,38,39,40,41,42,44,45,46,47,48,49,50]
 # VL_IDS = [51,52,54,56,57,58,59,60,61,63,64,65,66,67,68,69]
 # VL_IDS = [70,71,72,74,75,76,77,78,79,81,82,84,85,86,87,88,89]
-VL_IDS = [22]
+VL_IDS = [39]
 POSITIONS = ["prone", "supine"]
 
 # Per-subject point cloud inferior trim (mm).
 # Subjects with segmentation artifacts extending below the ribcage.
 PC_INFERIOR_TRIM = {
     22: 55.0,
+    32: 40.0,
+    38: 55.0,
     54: 15.0,
 }
 
