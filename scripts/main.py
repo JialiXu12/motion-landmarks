@@ -9,7 +9,8 @@ from utils import (
     calculate_clockface_coordinates,
     align_prone_to_supine,
     save_results_to_excel,
-    save_raw_data_to_excel
+    save_raw_data_to_excel,
+    save_alignment_metrics,
 )
 from scripts.utils_plot import plot_vector_three_views_multi_subject
 from structures import Subject
@@ -40,7 +41,7 @@ OUTPUT_DIR_T_Matrix.mkdir(parents=True, exist_ok=True)
 VL_IDS = [22]
 # VL_IDS = [9,11,12,14,15,17,18,19,20,22,25,29,30,31]
 # VL_IDS = [32,34,35,36,37,38,39,40,41,42,44,45,46,47,48,49,50]
-# VL_IDS = [51,52,53,54,56,57,58,59,60,61,63,64,65,66,67,68,69]
+# VL_IDS = [51,52,54,56,57,58,59,60,61,63,64,65,66,67,68,69]
 # VL_IDS = [70,71,72,74,75,76,77,78,79,81,82,84,85,86,87,88,89]
 
 print("Number of participants in total: ", len(VL_IDS))
@@ -174,7 +175,8 @@ for vl_id, results in alignment_results_all.items():
     vl_id_str = f"VL{vl_id:05d}"
     matrix_path = OUTPUT_DIR_T_Matrix / f"{vl_id_str}_transform_matrix.npy"
     np.save(matrix_path, results["T_total"])
-    print(f"Saved transformation matrix for {vl_id_str}")
+    save_alignment_metrics(OUTPUT_DIR_T_Matrix, vl_id, results)
+    print(f"Saved transformation matrix + metrics for {vl_id_str}")
 
 #%% --
 plot_vector_three_views_multi_subject(

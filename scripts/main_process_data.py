@@ -36,14 +36,14 @@ ANATOMICAL_JSON_BASE_ROOT = Path(r"U:\sandbox\jxu759\volunteer_seg\results")
 SEGMENTATION_ROOT = Path(r'U:\sandbox\jxu759\volunteer_seg\results')
 
 OUTPUT_DIR = Path("../output")
-EXCEL_FILE_PATH = OUTPUT_DIR / "landmark_results_v7_2026_03_10.xlsx"
+EXCEL_FILE_PATH = OUTPUT_DIR / "landmark_results_v8_2026_03_16.xlsx"
 
 # ── Subjects ───────────────────────────────────────────────────────────────
 # VL_IDS = [9,11,12,14,15,17,18,19,20,22,25,29,30,31]
 # VL_IDS = [32,34,35,36,37,38,39,40,41,42,44,45,46,47,48,49,50]
 # VL_IDS = [51,52,54,56,57,58,59,60,61,63,64,65,66,67,68,69]
-# VL_IDS = [70,71,72,74,75,76,77,78,79,81,82,84,85,86,87,88,89]
-VL_IDS = [12]
+VL_IDS = [70,71,72,74,75,76,77,78,79,81,82,84,85,86,87,88,89]
+# VL_IDS = [38]
 POSITIONS = ["prone", "supine"]
 
 print(f"Number of participants: {len(VL_IDS)}")
@@ -58,7 +58,8 @@ for vl_id in VL_IDS:
     subject = load_subject(
         vl_id=vl_id,
         positions=POSITIONS,
-        dicom_root=ROOT_PATH_MRI,
+        # dicom_root=ROOT_PATH_MRI,
+        dicom_root=None,
         anatomical_json_base_root=ANATOMICAL_JSON_BASE_ROOT,
         soft_tissue_root=SOFT_TISSUE_ROOT,
     )
