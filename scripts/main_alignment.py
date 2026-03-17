@@ -39,9 +39,9 @@ PRONE_RIBCAGE_ROOT = Path(r"U:\sandbox\jxu759\volunteer_prone_mesh")
 SUPINE_RIBCAGE_ROOT = Path(r"U:\sandbox\jxu759\volunteer_seg\results\supine\rib_cage")
 
 OUTPUT_DIR = Path("../output")
-EXCEL_FILE_PATH = OUTPUT_DIR / "landmark_results_v7_2026_03_10.xlsx"
+EXCEL_FILE_PATH = OUTPUT_DIR / "landmark_results_v8_2026_03_16.xlsx"
 
-OUTPUT_DIR_T_MATRIX = Path(r"../output/alignment/transformation_matrix_v7")
+OUTPUT_DIR_T_MATRIX = Path(r"../output/alignment/transformation_matrix_v8")
 OUTPUT_DIR_T_MATRIX.mkdir(parents=True, exist_ok=True)
 
 # ── Subjects ───────────────────────────────────────────────────────────────
@@ -49,7 +49,7 @@ OUTPUT_DIR_T_MATRIX.mkdir(parents=True, exist_ok=True)
 # VL_IDS = [32,34,35,36,37,38,39,40,41,42,44,45,46,47,48,49,50]
 # VL_IDS = [51,52,54,56,57,58,59,60,61,63,64,65,66,67,68,69]
 # VL_IDS = [70,71,72,74,75,76,77,78,79,81,82,84,85,86,87,88,89]
-VL_IDS = [39]
+VL_IDS = [32,34,35,36,37,38,39,40,41,42,44,45,46,47,48,49,50]
 POSITIONS = ["prone", "supine"]
 
 # Per-subject point cloud inferior trim (mm).
@@ -59,6 +59,12 @@ PC_INFERIOR_TRIM = {
     32: 40.0,
     38: 55.0,
     54: 15.0,
+}
+
+# Per-subject point cloud superior trim (mm).
+# Subjects with segmentation artifacts extending above the prone mesh coverage.
+PC_SUPERIOR_TRIM = {
+    20: 30.0
 }
 
 print(f"Number of participants: {len(VL_IDS)}")
@@ -116,6 +122,7 @@ for vl_id, filtered_subject in all_subjects_filtered.items():
             use_initial_rotation=True,
             mutual_region_padding_reciprocal=15,
             pc_inferior_trim=PC_INFERIOR_TRIM.get(vl_id, 0.0),
+            pc_superior_trim=PC_SUPERIOR_TRIM.get(vl_id, 0.0),
             max_correspondence_distance=1e6,
             trim_percentage=0,
             visualize_iterations=False,
