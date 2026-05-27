@@ -7,7 +7,10 @@ from typing import Dict, List, Tuple, Optional, Callable, Dict, Any
 from skimage.segmentation import find_boundaries
 from scipy.spatial import cKDTree
 import external.breast_metadata_mdv.breast_metadata as breast_metadata
-from breast_metadata_mdv.examples.images.visualise_image_and_mesh import align_prone_supine as aps
+try:
+    from external.breast_metadata_mdv.examples.images.visualise_image_and_mesh import align_prone_supine as aps
+except ImportError:
+    aps = None  # Function not available
 from collections import defaultdict
 import json
 import morphic
@@ -252,9 +255,15 @@ def generate_image_coordinates(image_shape, spacing):
 def extract_contour_points(mask, nb_points):
     labels = mask.values.copy()
     boundaries = find_boundaries(labels,mode = 'inner').astype(np.uint8)
-    image_coordinates,x,y,z = generate_image_coordinates(labels.shape,mask.spacing)
-    points = np.array(image_coordinates+mask.origin)
-    points =points[np.array( boundaries.ravel()).astype(bool),:]
+    # Original approach: allocates full coordinate grid (can exceed memory for large volumes)
+    # image_coordinates,x,y,z = generate_image_coordinates(labels.shape,mask.spacing)
+    # points = np.array(image_coordinates+mask.origin)
+    # points =points[np.array( boundaries.ravel()).astype(bool),:]
+
+    # Memory-efficient: only compute coordinates for boundary voxels
+    boundary_indices = np.argwhere(boundaries)  # (N_boundary, 3) integer indices
+    points = boundary_indices.astype(np.float64) * np.array(mask.spacing) + np.array(mask.origin)
+
     if (nb_points < len(points)):
         step = math.trunc(len(points)/nb_points)
         indx = range(0,len(points), step)
@@ -583,8 +592,13 @@ def get_landmarks_as_array(scan: ScanData, registrar_name: str) -> np.ndarray:
     if not landmarks_dict:
         return np.empty((0, 3))  # No landmarks
 
-    # 3. Filter for valid points and convert to array in one step
-    filtered_list = [p for p in landmarks_dict.values() if p is not None and p.shape == (3,)]
+    # 3. Filter for valid points and convert to array in sorted-name order.
+    # Sorting by name is critical: prone and supine dicts may have different
+    # insertion orders (from JSON), so positional alignment requires a stable sort.
+    filtered_list = [
+        p for _, p in sorted(landmarks_dict.items())
+        if p is not None and p.shape == (3,)
+    ]
 
     if not filtered_list:
         return np.empty((0, 3))  # No *valid* landmarks
@@ -610,18 +624,21 @@ def plot_evaluate_alignment(
         point_size: int = 5,
         arrow_scale: float = 1.0,
         show_scalar_bar: bool = True,
-        return_data: bool = False
+        return_data: bool = False,
+        title: str = "Alignment Error"
 ):
     """
-    Visualise the supine point cloud colored by nearest-neighbour distance to the
-    transformed prone mesh/point-cloud and draw arrows for the worst N points.
+    Visualise the transformed prone mesh colored by nearest-neighbour distance
+    to the supine point cloud (prone→supine query direction) and draw arrows
+    for the worst N points.
 
     Parameters:
     - supine_pts: (M,3) numpy array of supine point coordinates.
-    - transformed_prone_pts_or_mesh: either a (K,3) numpy array of transformed
+    - transformed_prone_mesh: either a (K,3) numpy array of transformed
       prone points, or a PyVista mesh/PolyData object already transformed into
       the supine frame.
-    - distances: .
+    - distances: (K,) per-prone-point distance to nearest supine point.
+    - idxs: (K,) index into supine_pts of nearest point for each prone point.
     - worst_n: number of worst points to draw arrows for.
     - cmap, point_size, arrow_scale: visual params.
     - show_scalar_bar: whether to show the scalar bar for distances.
@@ -640,32 +657,35 @@ def plot_evaluate_alignment(
     if supine_pts.ndim != 2 or supine_pts.shape[1] != 3:
         raise ValueError("supine_pts must be shape (N,3)")
 
-    # Resolve transformed prone coordinates array for KD-tree and arrows
-    prone_pts_for_tree = None
+    # Resolve transformed prone coordinates array
+    prone_pts = None
     prone_mesh_for_plot = None
     try:
-        # If the caller passed a PyVista object, extract points for KDTree
         if isinstance(transformed_prone_mesh, pv.PolyData) or isinstance(transformed_prone_mesh, pv.UnstructuredGrid):
             prone_mesh_for_plot = transformed_prone_mesh
-            prone_pts_for_tree = np.asarray(prone_mesh_for_plot.points)
+            prone_pts = np.asarray(prone_mesh_for_plot.points)
         else:
-            prone_pts_for_tree = np.asarray(transformed_prone_mesh)
+            prone_pts = np.asarray(transformed_prone_mesh)
     except Exception:
-        prone_pts_for_tree = np.asarray(transformed_prone_mesh)
+        prone_pts = np.asarray(transformed_prone_mesh)
 
-    if prone_pts_for_tree is None or len(prone_pts_for_tree) == 0:
-        raise ValueError("transformed_prone_pts_or_mesh contains no points")
-
-    # Create PyVista objects
-    sup_pd = pv.PolyData(supine_pts)
-    sup_pd["dist"] = distances
+    if prone_pts is None or len(prone_pts) == 0:
+        raise ValueError("transformed_prone_mesh contains no points")
 
     plotter = pv.Plotter()
 
-    # Add supine points coloured by distance
+    # Supine point cloud as semi-transparent overlay
+    plotter.add_points(
+        supine_pts, color="blue", point_size=max(1, point_size - 2),
+        render_points_as_spheres=True, opacity=0.3, label="Supine point cloud"
+    )
+
+    # Prone mesh/points colored by distance to nearest supine point
+    prone_pd = pv.PolyData(prone_pts)
+    prone_pd["dist"] = distances
     clim = (0.0, float(np.percentile(distances, 99))) if len(distances) > 0 else None
     plotter.add_points(
-        sup_pd,
+        prone_pd,
         scalars="dist",
         cmap=cmap,
         point_size=point_size,
@@ -675,39 +695,25 @@ def plot_evaluate_alignment(
         clim=clim
     )
 
-    # Overlay prone mesh or points
-    if prone_mesh_for_plot is not None:
-        # semi-transparent mesh if available
-        try:
-            plotter.add_mesh(prone_mesh_for_plot, color="tan", opacity=0.5, label="Transformed prone mesh")
-        except Exception:
-            # fallback to points
-            plotter.add_points(prone_pts_for_tree, color="tan", point_size=3, render_points_as_spheres=True)
-    else:
-        plotter.add_points(prone_pts_for_tree, color="tan", point_size=3, render_points_as_spheres=True)
-
-    # Draw arrows for the worst N supine points (largest distances)
-    worst_n_use = min(worst_n, supine_pts.shape[0])
+    # Draw arrows for the worst N prone points (largest distances)
+    worst_n_use = min(worst_n, len(distances))
     if worst_n_use > 0:
         worst_idx = np.argsort(distances)[-worst_n_use:]
-        worst_targets = supine_pts[worst_idx]
-        nearest_prone_pts = prone_pts_for_tree[idxs[worst_idx]]
-        vectors = nearest_prone_pts - worst_targets
+        worst_prone_pts = prone_pts[worst_idx]
+        nearest_supine_pts = supine_pts[idxs[worst_idx]]
+        vectors = nearest_supine_pts - worst_prone_pts
 
-        # Build a PolyData of the worst target locations and attach vectors
-        worst_pd = pv.PolyData(worst_targets)
-        # Ensure vectors shape is (N,3)
+        worst_pd = pv.PolyData(worst_prone_pts)
         worst_pd["vecs"] = vectors
-        # Create glyph arrows from the vectors
         try:
             arrows = worst_pd.glyph(orient="vecs", scale=False, factor=arrow_scale)
             plotter.add_mesh(arrows, color="red", label=f"Top {worst_n_use} errors")
         except Exception:
-            # If glyph fails (e.g. very small vectors), add simple line segments instead
-            for p, v in zip(worst_targets, vectors):
+            for p, v in zip(worst_prone_pts, vectors):
                 line = pv.Line(p, p + v * arrow_scale)
                 plotter.add_mesh(line, color="red")
 
+    plotter.add_text(title, position="upper_left", font_size=10, color="black")
     plotter.add_axes()
     plotter.add_legend()
 
@@ -724,18 +730,18 @@ def plot_evaluate_alignment(
         return {"distances": distances, "nearest_indices": idxs}
 
 
-def filter_point_cloud_asymmetric(points, reference, tol_min, tol_max, axis):
-    """
-    Filters points along an axis using different tolerances for min and max bounds.
-    """
-    min_ref = np.min(reference[:, axis])
-    max_ref = np.max(reference[:, axis])
-
-    keep_idx = [idx for idx, pt in enumerate(points)
-                if min_ref + tol_min < pt[axis] < max_ref - tol_max]
-
-    points = points[keep_idx]
-    return points
+# def filter_point_cloud_asymmetric(points, reference, tol_min, tol_max, axis):
+#     """
+#     Filters points along an axis using different tolerances for min and max bounds.
+#     """
+#     min_ref = np.min(reference[:, axis])
+#     max_ref = np.max(reference[:, axis])
+#
+#     keep_idx = [idx for idx, pt in enumerate(points)
+#                 if min_ref + tol_min < pt[axis] < max_ref - tol_max]
+#
+#     points = points[keep_idx]
+#     return points
 #
 
 # def clean_ribcage_point_cloud(
@@ -805,8 +811,7 @@ def filter_point_cloud_asymmetric(points, reference, tol_min, tol_max, axis):
 #     # plot_all(point_cloud=supine_ribcage_pc)
 #
 #     # remove points on the top and bottom axial slices
-#     pc_data = filter_point_cloud_asymmetric(
-#         points=pc_data,
+#        points=pc_data,
 #         reference=pc_data,
 #         tol_min=image_grid.spacing[2] * z_voxels_bottom,  # Remove 20 voxels from the bottom/MIN side
 #         tol_max=image_grid.spacing[2] * z_voxels_top,  # Remove 5 voxels from the top/MAX side
@@ -827,7 +832,8 @@ def filter_point_cloud_asymmetric(points, reference, tol_min, tol_max, axis):
 #
 #     print("remove spine region, point cloud size:", pc_data.shape)
 #     if run_plot_all:
-#         plot_all(point_cloud=pc_data)
+#         plot_all(point_cloud=pc_data)     pc_data = filter_point_cloud_asymmetric(
+#
 #
 #     # x_offset = 100.
 #     # y_median = np.median(supine_ribcage_pc[:, 1])
@@ -976,28 +982,6 @@ def align_prone_to_supine(
         axis=2
     )
 
-    # # --- 6. Clean up Supine Point Cloud ---
-    # vl_id_str = subject.subject_id
-    # supine_ribcage_pc = clean_ribcage_point_cloud(
-    #     pc_data=supine_ribcage_pc,
-    #     image_grid=supine_image_grid,
-    #     config_filepath=f'../output/config/{vl_id_str}_config.json',
-    #     asym_filter_func=filter_point_cloud_asymmetric,
-    #     # --- Geometric Cropping Parameters (Default values) ---
-    #     z_voxels_bottom=20,
-    #     z_voxels_top=5,
-    #     x_spine_offset=25.0,
-    #     y_spine_offset=60.0,
-    #     x_lateral_margin=90.0,
-    #     y_posterior_margin=60.0,
-    #     z_inferior_margin=25.0,
-    #     # --- Statistical Outlier Removal (SOR) Parameters (Default values) ---
-    #     sor_k_neighbors=50,
-    #     sor_std_multiplier=1.0,
-    #     run_plot_all=True
-    # )
-
-
     # ==========================================================
     # %% INITIAL POINT TO POINT ALIGNMENT
     # ==========================================================
@@ -1035,28 +1019,28 @@ def align_prone_to_supine(
     # # show statistics and distribution of projection errors
     # aps.summary_stats(rib_error_mag)
     # aps.plot_histogram(rib_error_mag, 5)
-
+    sternum_lists = [prone_sternum_transformed, sternum_supine]
     if plot_for_debug:
-        plot_all(point_cloud=supine_ribcage_pc, mesh_points=prone_ribcage_mesh_transformed)
+        plot_all(point_cloud=supine_ribcage_pc, mesh_points=prone_ribcage_mesh_transformed, anat_landmarks=sternum_lists)
 
     # Visualise supine point-cloud coloured by nearest distance to the transformed prone mesh
     # and draw arrows at the worst residual points.
 
-    # try:
-    #     plot_evaluate_alignment(
-    #         supine_pts=supine_ribcage_pc,
-    #         transformed_prone_mesh=prone_ribcage_mesh_transformed,
-    #         distances=rib_error_mag,
-    #         idxs=mapped_idx,
-    #         worst_n=60,
-    #         cmap="viridis",
-    #         point_size=3,
-    #         arrow_scale=20,
-    #         show_scalar_bar=True,
-    #         return_data=False
-    #     )
-    # except Exception as e:
-    #     print(f"Could not visualise ribcage errors: {e}")
+    try:
+        plot_evaluate_alignment(
+            supine_pts=supine_ribcage_pc,
+            transformed_prone_mesh=prone_ribcage_mesh_transformed,
+            distances=rib_error_mag,
+            idxs=mapped_idx,
+            worst_n=60,
+            cmap="viridis",
+            point_size=3,
+            arrow_scale=20,
+            show_scalar_bar=True,
+            return_data=False
+        )
+    except Exception as e:
+        print(f"Could not visualise ribcage errors: {e}")
 
 
     # ==========================================================
@@ -1076,13 +1060,18 @@ def align_prone_to_supine(
     )
 
     if plot_for_debug:
-        plot_all(point_cloud=supine_ribcage_refined, mesh_points=prone_ribcage_mesh_transformed)
+        T_icp_inv = np.linalg.inv(T_icp)
+        T_total = T_icp_inv @ T_optimal
+        prone_sternum_aligned_final = apply_transform(sternum_prone, T_total)
+        sternum_lists = [prone_sternum_aligned_final, sternum_supine]
+
+        plot_all(point_cloud=supine_ribcage_refined, mesh_points=prone_ribcage_mesh_transformed, anat_landmarks=sternum_lists)
 
     # update the prone point cloud for subsequent plotting and evaluation
     supine_ribcage_refined_inlier = icp_result['inlier_source_pts']
 
     if plot_for_debug:
-        plot_all(point_cloud=supine_ribcage_refined_inlier, mesh_points=prone_ribcage_mesh_transformed)
+        plot_all(point_cloud=supine_ribcage_refined_inlier, mesh_points=prone_ribcage_mesh_transformed, anat_landmarks=sternum_lists)
 
     print("\nEvaluate point to plane alignment\n============")
     if icp_result is not None:
@@ -1098,21 +1087,21 @@ def align_prone_to_supine(
 
     # Visualise supine point-cloud coloured by nearest distance to the transformed prone mesh
     # and draw arrows at the worst residual points.
-    # try:
-    #     plot_evaluate_alignment(
-    #         supine_pts=supine_ribcage_refined,
-    #         transformed_prone_mesh=prone_ribcage_mesh_transformed,
-    #         distances=rib_error_mag,
-    #         idxs=mapped_idx,
-    #         worst_n=60,
-    #         cmap="viridis",
-    #         point_size=3,
-    #         arrow_scale=20,
-    #         show_scalar_bar=True,
-    #         return_data=False
-    #     )
-    # except Exception as e:
-    #     print(f"Could not visualise ribcage errors: {e}")
+    try:
+        plot_evaluate_alignment(
+            supine_pts=supine_ribcage_refined,
+            transformed_prone_mesh=prone_ribcage_mesh_transformed,
+            distances=rib_error_mag,
+            idxs=mapped_idx,
+            worst_n=60,
+            cmap="viridis",
+            point_size=3,
+            arrow_scale=20,
+            show_scalar_bar=True,
+            return_data=False
+        )
+    except Exception as e:
+        print(f"Could not visualise ribcage errors: {e}")
 
     # show statistics and distribution of projection errors
     print(f"\nSummary of ribcage alignment error (absolute) after ICP")
@@ -1188,8 +1177,13 @@ def align_prone_to_supine(
 
     # 4. Calculate Displacements Relative to Nipple
     # ----------------------------------------------------------
-    # Landmarks position relative to Nipple
-    lm_pos_prone_rel_nipple = landmark_prone_transformed - nipple_prone_transformed
+    # # Landmarks position relative to Nipple
+    # closest_nipple_prone_pos = np.where(
+    #     is_left_breast[:, np.newaxis],
+    #     nipple_prone_transformed[0],  # Left nipple
+    #     nipple_prone_transformed[1]  # Right nipple
+    # )
+    # lm_pos_prone_rel_nipple = landmark_prone_transformed - closest_nipple_prone_pos
 
     # How much did the landmark move *compared* to how much the nipple moved?
     lm_disp_rel_nipple = lm_disp_rel_sternum - closest_nipple_disp_vec
@@ -1373,7 +1367,7 @@ def align_prone_to_supine(
         "sternum_error": sternum_error,
         "ribcage_error_mean": np.mean(rib_error_mag),
         "ribcage_error_std": np.std(rib_error_mag),
-        "ribcage_inlier_RMSE": icp_result['inlier_rmse'],
+        "ribcage_inlier_rmse": icp_result['inlier_rmse'],
         "sternum_prone_transformed": prone_sternum_aligned_final,
         "sternum_supine": sternum_supine,
         "nipple_prone_transformed": nipple_prone_transformed,
@@ -1455,25 +1449,30 @@ def run_point_to_plane_icp(
     target_normals: Optional[np.ndarray] = None,
     max_correspondence_distance: float = 10.0,
     max_iterations: int = 50,
-    method: str = 'open3d',
     delta: float = 1.0,
-    reweight_strategy: str = 'huber',
-    huber_delta: float = 2.0,
     verbose: bool = False
 ) -> tuple:
     """
-    Flexible point-to-plane ICP. Two modes:
-      - method='open3d' : use Open3D registration_icp (point-to-plane) and return its transform + metrics
-      - method='reweighted' : run an iterative reweighted least-squares point-to-plane ICP implemented in numpy
+    Point-to-plane ICP using Open3D registration_icp.
 
-    Returns (T_total, source_transformed, info) where info includes diagnostics and both RMSEs.
+    Args:
+        source_pts: Source point cloud (N, 3)
+        target_pts: Target point cloud (M, 3)
+        target_normals: Target normals (M, 3), estimated if None
+        max_correspondence_distance: Maximum distance for point pairs
+        max_iterations: Maximum ICP iterations
+        delta: Huber loss parameter (k value)
+        verbose: Print debug information
+
+    Returns:
+        (T_icp, source_aligned, info): Transformation matrix, aligned points, and metrics
     """
     source_pts = np.asarray(source_pts, dtype=np.float64)
     target_pts = np.asarray(target_pts, dtype=np.float64)
     if source_pts.size == 0 or target_pts.size == 0:
         return np.eye(4), source_pts.copy(), {"it": 0, "euclidean_rmse": None, "ptp_rmse": None}
 
-    # Helper: estimate normals on target if not provided using Open3D
+    # Estimate normals on target if not provided using Open3D
     if target_normals is None:
         try:
             tgt_pcd = o3d.geometry.PointCloud()
@@ -1485,179 +1484,84 @@ def run_point_to_plane_icp(
         except Exception:
             target_normals = np.tile(np.array([[0.0, 0.0, 1.0]]), (target_pts.shape[0], 1))
 
-    if method == 'open3d':
-        # Build Open3D point clouds
-        src_pcd = o3d.geometry.PointCloud()
-        tgt_pcd = o3d.geometry.PointCloud()
-        src_pcd.points = o3d.utility.Vector3dVector(source_pts)
-        tgt_pcd.points = o3d.utility.Vector3dVector(target_pts)
-        # ensure target normals exist in Open3D pcd
-        try:
-            tgt_pcd.normals = o3d.utility.Vector3dVector(target_normals)
-        except Exception:
-            pass
+    # Build Open3D point clouds
+    src_pcd = o3d.geometry.PointCloud()
+    tgt_pcd = o3d.geometry.PointCloud()
+    src_pcd.points = o3d.utility.Vector3dVector(source_pts)
+    tgt_pcd.points = o3d.utility.Vector3dVector(target_pts)
 
-        init_T = np.eye(4)
-        icp_criteria = o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=max_iterations)
+    # Ensure target normals exist in Open3D pcd
+    try:
+        tgt_pcd.normals = o3d.utility.Vector3dVector(target_normals)
+    except Exception:
+        pass
 
-        #The Huber Loss is a robust loss function that behaves like L2 (Least Squares) for small errors (inliers)
-        # and like L1 (Least Absolute Error) for large errors (outliers).
-        loss = o3d.pipelines.registration.HuberLoss(k=delta) # k is the delta parameter
-        # The Tukey Biweight Loss is the closest practical equivalent to an aggressive inverse weighting scheme for outlier rejection.
-        # loss = o3d.pipelines.registration.TukeyLoss(k=delta)
-        try:
-            result = o3d.pipelines.registration.registration_icp(
-                src_pcd,
-                tgt_pcd,
-                max_correspondence_distance,
-                init_T,
-                o3d.pipelines.registration.TransformationEstimationPointToPlane(loss),
-                icp_criteria
-            )
-        except Exception as e:
-            if verbose:
-                print(f"Open3D ICP failed: {e}")
-            return np.eye(4), source_pts.copy(), {"it": 0}
+    init_T = np.eye(4)
+    icp_criteria = o3d.pipelines.registration.ICPConvergenceCriteria(max_iteration=max_iterations)
 
-        T_icp = np.asarray(result.transformation)
-        src_h = np.hstack((source_pts, np.ones((source_pts.shape[0], 1))))
-        source_aligned = (T_icp @ src_h.T)[:3, :].T
+    # The Huber Loss is a robust loss function that behaves like L2 (Least Squares) for small errors (inliers)
+    # and like L1 (Least Absolute Error) for large errors (outliers).
+    loss = o3d.pipelines.registration.HuberLoss(k=delta)  # k is the delta parameter
+    # The Tukey Biweight Loss is the closest practical equivalent to an aggressive inverse weighting scheme for outlier rejection.
+    # loss = o3d.pipelines.registration.TukeyLoss(k=delta)
 
-        # Re-use the target point cloud created earlier (or recreate it for simplicity)
-        tgt_pcd = o3d.geometry.PointCloud()
-        tgt_pcd.points = o3d.utility.Vector3dVector(target_pts)
-
-        source_pcd_aligned = o3d.geometry.PointCloud()
-        source_pcd_aligned.points = o3d.utility.Vector3dVector(source_aligned)
-
-        # Find correspondences after final alignment
-        # The result includes the indices of correspondences and their distances
-        corr_result = o3d.pipelines.registration.evaluate_registration(
-            source_pcd_aligned,
+    try:
+        result = o3d.pipelines.registration.registration_icp(
+            src_pcd,
             tgt_pcd,
             max_correspondence_distance,
-            T_icp  # The transformation is T_icp @ init_T, which is T_icp here
+            init_T,
+            o3d.pipelines.registration.TransformationEstimationPointToPlane(loss),
+            icp_criteria
         )
-
-        # The 'correspondence_set' is a NumPy array where each row is [source_index, target_index]
-        correspondence_indices = np.asarray(corr_result.correspondence_set)
-
-        # The indices of the *aligned source points* that are considered inliers
-        inlier_source_indices = correspondence_indices[:, 0]
-
-        # Filter the source_aligned array to get only the inlier points
-        inlier_source_pts = source_aligned[inlier_source_indices]
-
-        metrics = compute_icp_metrics(source_aligned, target_pts, target_normals, max_correspondence_distance)
-
-        info = {
-            "it": result.convergence_status if hasattr(result, 'convergence_status') else max_iterations,
-            "fitness": float(getattr(result, 'fitness', np.nan)),
-            "inlier_rmse": float(getattr(result, 'inlier_rmse', np.nan)),
-            "euclidean_rmse": metrics["euclidean_rmse"],
-            "point_to_plane_rmse": metrics["point_to_plane_rmse"],
-            "n_inliers": metrics["n_inliers"],
-            "inlier_fraction": metrics["inlier_fraction"],
-            "inlier_source_pts": inlier_source_pts
-        }
-        return T_icp, source_aligned, info
-
-    # else method == 'reweighted'
-    # iterative reweighted point-to-plane ICP implemented in numpy
-    tree = cKDTree(target_pts)
-    src = source_pts.copy()
-    T_total = np.eye(4)
-    prev_ptp_rmse = np.inf
-
-    for it in range(max_iterations):
-        dists, idxs = tree.query(src)
-        valid_mask = dists <= max_correspondence_distance
-        if not np.any(valid_mask):
-            if verbose:
-                print("No valid correspondences in reweighted ICP iteration")
-            break
-
-        P = src[valid_mask]
-        Q = target_pts[idxs[valid_mask]]
-        N = target_normals[idxs[valid_mask]]
-
-        # point-to-plane residuals r = n^T (p - q)
-        r = np.einsum('ij,ij->i', N, (P - Q))
-
-        # compute weights
-        if reweight_strategy == 'huber':
-            abs_r = np.abs(r)
-            w = np.where(abs_r <= huber_delta, 1.0, huber_delta / (abs_r + 1e-12))
-        elif reweight_strategy == 'inv':
-            w = 1.0 / (np.abs(r) + 1e-6)
-            # cap weights to avoid extreme values
-            w = np.minimum(w, 100.0)
-        else:
-            # uniform weights
-            w = np.ones_like(r)
-
-        # Build A and b for linearised point-to-plane: A_i = [ (p x n)^T , n^T ], b_i = n^T (q - p)
-        pxn = np.cross(P, N)
-        A = np.hstack((pxn, N))
-        b = np.einsum('ij,ij->i', N, (Q - P))
-
-        # Apply weights by scaling rows
-        W_sqrt = np.sqrt(w)[:, None]
-        Aw = W_sqrt * A
-        bw = W_sqrt[:, 0] * b
-
-        try:
-            x, *_ = np.linalg.lstsq(Aw, bw, rcond=None)
-        except Exception as e:
-            if verbose:
-                print(f"Lstsq failed in reweighted ICP: {e}")
-            break
-
-        w_rot = x[:3]
-        t_trans = x[3:]
-
-        # incremental transform
-        # Rodrigues
-        theta = np.linalg.norm(w_rot)
-        if theta < 1e-12:
-            R_delta = np.eye(3)
-        else:
-            k = w_rot / theta
-            K = np.array([[0, -k[2], k[1]], [k[2], 0, -k[0]], [-k[1], k[0], 0]])
-            R_delta = np.eye(3) + np.sin(theta) * K + (1 - np.cos(theta)) * (K @ K)
-
-        T_delta = np.eye(4)
-        T_delta[:3, :3] = R_delta
-        T_delta[:3, 3] = t_trans
-
-        # apply to src
-        src_h = np.hstack((src, np.ones((src.shape[0], 1))))
-        src = (T_delta @ src_h.T)[:3, :].T
-
-        # accumulate transform
-        T_total = T_delta @ T_total
-
-        # compute metrics
-        metrics = compute_icp_metrics(src, target_pts, target_normals, max_correspondence_distance)
-        ptp_rmse = metrics["point_to_plane_rmse"] if metrics["point_to_plane_rmse"] is not None else np.inf
-
+    except Exception as e:
         if verbose:
-            print(f"Reweighted ICP iter {it+1}: ptp_rmse={ptp_rmse:.6f}, eucl_rmse={metrics['euclidean_rmse']}, n_inliers={metrics['n_inliers']}")
+            print(f"Open3D ICP failed: {e}")
+        return np.eye(4), source_pts.copy(), {"it": 0}
 
-        # convergence check (small change in ptp RMSE)
-        if np.abs(prev_ptp_rmse - ptp_rmse) < 1e-6:
-            break
-        prev_ptp_rmse = ptp_rmse
+    T_icp = np.asarray(result.transformation)
+    src_h = np.hstack((source_pts, np.ones((source_pts.shape[0], 1))))
+    source_aligned = (T_icp @ src_h.T)[:3, :].T
+
+    # Re-use the target point cloud created earlier (or recreate it for simplicity)
+    tgt_pcd = o3d.geometry.PointCloud()
+    tgt_pcd.points = o3d.utility.Vector3dVector(target_pts)
+
+    source_pcd_aligned = o3d.geometry.PointCloud()
+    source_pcd_aligned.points = o3d.utility.Vector3dVector(source_aligned)
+
+    # Find correspondences after final alignment
+    # The result includes the indices of correspondences and their distances
+    corr_result = o3d.pipelines.registration.evaluate_registration(
+        source_pcd_aligned,
+        tgt_pcd,
+        max_correspondence_distance,
+        T_icp  # The transformation is T_icp @ init_T, which is T_icp here
+    )
+
+    # The 'correspondence_set' is a NumPy array where each row is [source_index, target_index]
+    correspondence_indices = np.asarray(corr_result.correspondence_set)
+
+    # The indices of the *aligned source points* that are considered inliers
+    inlier_source_indices = correspondence_indices[:, 0]
+
+    # Filter the source_aligned array to get only the inlier points
+    inlier_source_pts = source_aligned[inlier_source_indices]
+
+    metrics = compute_icp_metrics(source_aligned, target_pts, target_normals, max_correspondence_distance)
 
     info = {
-        "it": it + 1,
-        "euclidean_rmse": metrics.get("euclidean_rmse"),
-        "point_to_plane_rmse": metrics.get("point_to_plane_rmse"),
-        "n_inliers": metrics.get("n_inliers"),
-        "inlier_fraction": metrics.get("inlier_fraction")
+        "it": result.convergence_status if hasattr(result, 'convergence_status') else max_iterations,
+        "fitness": float(getattr(result, 'fitness', np.nan)),
+        "inlier_rmse": float(getattr(result, 'inlier_rmse', np.nan)),
+        "euclidean_rmse": metrics["euclidean_rmse"],
+        "point_to_plane_rmse": metrics["point_to_plane_rmse"],
+        "n_inliers": metrics["n_inliers"],
+        "inlier_fraction": metrics["inlier_fraction"],
+        "inlier_source_pts": inlier_source_pts
     }
+    return T_icp, source_aligned, info
 
-    return T_total, src, info
 
 
 def save_results_to_excel(
@@ -1672,26 +1576,33 @@ def save_results_to_excel(
     Gathers all analysis results from the various dictionaries
     and saves them to a single, comprehensive Excel file.
 
-    This function now works with averaged landmarks only (no separate registrar sheets).
-    The alignment_results use 'ld_ave_' prefix for landmark displacement data.
+    Writes three sheets for per-registrar displacement data:
+        - processed_r1_data (anthony)
+        - processed_r2_data (holly)
+        - processed_ave_data (average)
+
+    The alignment_results use 'ld_anthony_', 'ld_holly_', 'ld_ave_' prefixes.
     """
     print("\nSaving all results to Excel...\n============")
 
-    # --- Internal helper to build rows for averaged landmarks ---
-    def _build_averaged_data() -> List[Dict[str, any]]:
+    # --- Internal helper to build rows for a given registrar ---
+    def _build_registrar_data(ld_prefix: str, registrar_name: str) -> List[Dict[str, any]]:
+        """
+        Build rows for one registrar's landmark displacement data.
 
+        Args:
+            ld_prefix: Key prefix in alignment_results (e.g. 'ld_ave', 'ld_anthony')
+            registrar_name: Name for distance/clockface lookups (e.g. 'average', 'anthony')
+        """
         all_rows = []
 
-        # Master loop: Iterate through the corresponding landmarks
         for vl_id, pairs in correspondences.items():
-
-            # --- Get Subject-Level Data ---
             if vl_id not in all_subjects:
                 continue
             subject = all_subjects[vl_id]
-            align_res = alignment_results_all.get(vl_id)  # Safe get
+            align_res = alignment_results_all.get(vl_id)
 
-            # Get subject-level alignment data (nipples, sternum, and ribcage)
+            # Subject-level alignment data (shared across registrars)
             if align_res:
                 nipple_disp_mag = align_res.get("nipple_displacement_magnitudes", [None, None])
                 nipple_disp_vec = align_res.get("nipple_displacement_vectors", [[None] * 3, [None] * 3])
@@ -1699,9 +1610,12 @@ def save_results_to_excel(
                 nipple_supine = align_res.get("nipple_supine", [[None] * 3, [None] * 3])
                 sternum_prone_transformed = align_res.get("sternum_prone_transformed", [[None] * 3, [None] * 3])
                 sternum_supine = align_res.get("sternum_supine", [[None] * 3, [None] * 3])
+                ribcage_error_rmse = align_res.get("ribcage_error_rmse", None)
                 ribcage_error_mean = align_res.get("ribcage_error_mean", None)
                 ribcage_error_std = align_res.get("ribcage_error_std", None)
-                ribcage_inlier_RMSE = align_res.get("ribcage_inlier_RMSE", None)
+                ribcage_inlier_rmse = align_res.get("ribcage_inlier_rmse", None)
+                ribcage_inlier_mean = align_res.get("ribcage_inlier_mean", None)
+                ribcage_inlier_std = align_res.get("ribcage_inlier_std", None)
                 T_total = align_res.get("T_total", None)
             else:
                 nipple_disp_mag = [None, None]
@@ -1710,47 +1624,42 @@ def save_results_to_excel(
                 nipple_supine = [[None] * 3, [None] * 3]
                 sternum_prone_transformed = [[None] * 3, [None] * 3]
                 sternum_supine = [[None] * 3, [None] * 3]
+                ribcage_error_rmse = None
                 ribcage_error_mean = None
                 ribcage_error_std = None
-                ribcage_inlier_RMSE = None
+                ribcage_inlier_rmse = None
+                ribcage_inlier_mean = None
+                ribcage_inlier_std = None
                 T_total = None
 
-            # --- Loop through each landmark pair for this subject ---
             for i, pair in enumerate(pairs):
-
-                # For averaged landmarks, use the first name in the pair (they should be the same)
                 lm_name = pair[0]
 
-                # Get landmark-specific alignment data (from alignment_results with 'ld_ave_' prefix)
+                # Per-landmark displacement data using registrar-specific prefix
                 if align_res:
-                    lm_prone_ave_transformed = align_res.get("landmark_prone_ave_transformed", [[None] * 3] * len(pairs))[i]
-                    lm_supine_ave = align_res.get("landmark_supine_ave", [[None] * 3] * len(pairs))[i]
-                    lm_disp_mag = align_res.get("ld_ave_displacement_magnitudes", [None] * len(pairs))[i]
-                    lm_disp_vec = align_res.get("ld_ave_displacement_vectors", [[None] * 3] * len(pairs))[i]
-                    lm_rel_mag = align_res.get("ld_ave_rel_nipple_magnitudes", [None] * len(pairs))[i]
-                    lm_rel_vec = align_res.get("ld_ave_rel_nipple_vectors", [[None] * 3] * len(pairs))[i]
+                    lm_prone_rel = align_res.get(f"{ld_prefix}_prone_rel_sternum", [[None] * 3] * len(pairs))[i]
+                    lm_supine_rel = align_res.get(f"{ld_prefix}_supine_rel_sternum", [[None] * 3] * len(pairs))[i]
+                    lm_disp_mag = align_res.get(f"{ld_prefix}_displacement_magnitudes", [None] * len(pairs))[i]
+                    lm_disp_vec = align_res.get(f"{ld_prefix}_displacement_vectors", [[None] * 3] * len(pairs))[i]
+                    lm_rel_mag = align_res.get(f"{ld_prefix}_rel_nipple_magnitudes", [None] * len(pairs))[i]
+                    lm_rel_vec = align_res.get(f"{ld_prefix}_rel_nipple_vectors", [[None] * 3] * len(pairs))[i]
                 else:
-                    lm_prone_ave_transformed = [None] * 3
-                    lm_supine_ave = [None] * 3
+                    lm_prone_rel = [None] * 3
+                    lm_supine_rel = [None] * 3
                     lm_disp_mag = None
                     lm_disp_vec = [None] * 3
                     lm_rel_mag = None
                     lm_rel_vec = [None] * 3
 
-                # --- Helper to safely get nested dictionary data ---
-                # Note: distance_results and clockface_results use "average" as registrar name
                 def get_data(results_dict: Dict, position: str, data_key: str, default: any = None) -> any:
                     try:
                         if data_key in ["skin_distances", "rib_distances", "skin_neighborhood_avg", "rib_neighborhood_avg"]:
-                            # This data is in distance_results
-                            return results_dict[vl_id][position]["average"][data_key][lm_name]
+                            return results_dict[vl_id][position][registrar_name][data_key][lm_name]
                         else:
-                            # This data is in clockface_results
-                            return results_dict[vl_id][position]["average"][lm_name][data_key]
+                            return results_dict[vl_id][position][registrar_name][lm_name][data_key]
                     except (KeyError, TypeError):
                         return default
 
-                # --- Build the row for this single landmark ---
                 row_data = {
                     'VL_ID': vl_id,
                     'Age': subject.age,
@@ -1773,9 +1682,12 @@ def save_results_to_excel(
                     'Time (supine)': get_data(clockface_results, "supine", "time"),
                     'Quadrant (supine)': get_data(clockface_results, "supine", "quadrant"),
 
+                    "ribcage error rmse": ribcage_error_rmse,
                     "ribcage error mean": ribcage_error_mean,
                     "ribcage error std": ribcage_error_std,
-                    "ribcage inlier RMSE": ribcage_inlier_RMSE,
+                    "ribcage anterior rmse": ribcage_inlier_rmse,
+                    "ribcage anterior mean": ribcage_inlier_mean,
+                    "ribcage anterior std": ribcage_inlier_std,
 
                     "sternum superior prone transformed x": sternum_prone_transformed[0][0],
                     "sternum superior prone transformed y": sternum_prone_transformed[0][1],
@@ -1798,12 +1710,12 @@ def save_results_to_excel(
                     "right nipple supine y": nipple_supine[1][1],
                     "right nipple supine z": nipple_supine[1][2],
 
-                    "landmark ave prone transformed x": lm_prone_ave_transformed[0],
-                    "landmark ave prone transformed y": lm_prone_ave_transformed[1],
-                    "landmark ave prone transformed z": lm_prone_ave_transformed[2],
-                    "landmark ave supine x": lm_supine_ave[0],
-                    "landmark ave supine y": lm_supine_ave[1],
-                    "landmark ave supine z": lm_supine_ave[2],
+                    "landmark prone transformed x": lm_prone_rel[0],
+                    "landmark prone transformed y": lm_prone_rel[1],
+                    "landmark prone transformed z": lm_prone_rel[2],
+                    "landmark supine x": lm_supine_rel[0],
+                    "landmark supine y": lm_supine_rel[1],
+                    "landmark supine z": lm_supine_rel[2],
 
                     'Left nipple displacement [mm]': nipple_disp_mag[0],
                     'Right nipple displacement [mm]': nipple_disp_mag[1],
@@ -1834,41 +1746,44 @@ def save_results_to_excel(
                 }
                 all_rows.append(row_data)
 
-        print(json.dumps(all_rows, indent=2))
-
         return all_rows
 
+    # --- Helper to write one registrar sheet ---
+    def _write_registrar_sheet(writer, sheet_name: str, ld_prefix: str, registrar_name: str,
+                               existing_sheets: dict):
+        print(f"Building data for {registrar_name} landmarks...")
+        rows = _build_registrar_data(ld_prefix, registrar_name)
+        df_new = pd.DataFrame(rows)
+        new_vl_ids = df_new['VL_ID'].unique() if not df_new.empty else []
+
+        df_existing = existing_sheets.get(sheet_name, pd.DataFrame())
+        if not df_existing.empty and len(new_vl_ids) > 0:
+            df_existing = df_existing[~df_existing['VL_ID'].isin(new_vl_ids)].copy()
+
+        df_combined = pd.concat([df_existing, df_new], ignore_index=True)
+        df_combined = df_combined.sort_values(by=['VL_ID'], kind='stable').reset_index(drop=True)
+        df_combined.to_excel(writer, sheet_name=sheet_name, index=False)
 
     # --- Main function logic ---
-
-    # Create the output directory if it doesn't exist
     excel_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Build data for averaged landmarks only
-    print(f"Building data for averaged landmark positions...")
-    ave_data = _build_averaged_data()
-    df_ave = pd.DataFrame(ave_data)
+    # Define registrar sheets
+    registrar_sheets = [
+        ('processed_r1_data', 'ld_anthony', 'anthony'),
+        ('processed_r2_data', 'ld_holly', 'holly'),
+        ('processed_ave_data', 'ld_ave', 'average'),
+    ]
 
-    # Get VL_IDs from new data
-    new_vl_ids = df_ave['VL_ID'].unique() if not df_ave.empty else []
-
-    # Load existing data if file exists
-    df_existing = pd.DataFrame()
+    # Load existing sheets if file exists
+    existing_sheets = {}
     if excel_path.exists():
-        try:
-            df_existing = pd.read_excel(excel_path, sheet_name='processed_ave_data', engine='openpyxl')
-            if not df_existing.empty:
-                # Filter out rows for VL_IDs that we're updating
-                df_existing = df_existing[~df_existing['VL_ID'].isin(new_vl_ids)].copy()
-        except ValueError:
-            print(f"Warning: Sheet 'processed_ave_data' not found. It will be created.")
-        except Exception as e:
-            print(f"Error reading 'processed_ave_data' sheet: {e}. Starting new sheet.")
-
-    # Combine existing and new data
-    print("Combining dataframes...")
-    df_combined = pd.concat([df_existing, df_ave], ignore_index=True)
-    df_combined = df_combined.sort_values(by=['VL_ID'], kind='stable').reset_index(drop=True)
+        for sheet_name, _, _ in registrar_sheets:
+            try:
+                existing_sheets[sheet_name] = pd.read_excel(
+                    excel_path, sheet_name=sheet_name, engine='openpyxl'
+                )
+            except (ValueError, Exception):
+                pass  # Sheet doesn't exist yet
 
     # Determine write mode
     write_mode = 'a' if excel_path.exists() else 'w'
@@ -1877,12 +1792,86 @@ def save_results_to_excel(
         writer_kwargs['if_sheet_exists'] = 'replace'
 
     try:
-        # Use ExcelWriter as a context manager for safe file handling
         with pd.ExcelWriter(excel_path, **writer_kwargs) as writer:
-            df_combined.to_excel(writer, sheet_name='processed_ave_data', index=False)
+            for sheet_name, ld_prefix, registrar_name in registrar_sheets:
+                _write_registrar_sheet(writer, sheet_name, ld_prefix, registrar_name, existing_sheets)
         print(f"Data successfully saved to {excel_path}")
     except Exception as e:
         print(f"An error occurred while saving: {e}")
+
+
+def save_alignment_metrics(output_dir: Path, vl_id: int, alignment_results: Dict) -> Path:
+    """
+    Save alignment error metrics to a JSON sidecar file.
+
+    Saved alongside the transformation matrix .npy file so that
+    apply_saved_alignment.py can reload exact metrics without re-computing.
+
+    Parameters
+    ----------
+    output_dir : Path
+        Directory to save to (same as transformation matrix directory).
+    vl_id : int
+        Subject ID number.
+    alignment_results : dict
+        Output of align_prone_to_supine_optimal().
+
+    Returns
+    -------
+    Path to the saved JSON file.
+    """
+    vl_id_str = f"VL{vl_id:05d}"
+    metrics = {
+        'ribcage_error_rmse': alignment_results.get('ribcage_error_rmse'),
+        'ribcage_error_mean': alignment_results.get('ribcage_error_mean'),
+        'ribcage_error_std': alignment_results.get('ribcage_error_std'),
+        'ribcage_inlier_rmse': alignment_results.get('ribcage_inlier_rmse'),
+        'ribcage_inlier_mean': alignment_results.get('ribcage_inlier_mean'),
+        'ribcage_inlier_std': alignment_results.get('ribcage_inlier_std'),
+        'sternum_error': alignment_results.get('sternum_error'),
+    }
+    output_dir.mkdir(parents=True, exist_ok=True)
+    json_path = output_dir / f"{vl_id_str}_alignment_metrics.json"
+    with open(json_path, 'w', encoding='utf-8') as f:
+        json.dump(metrics, f, indent=2)
+    return json_path
+
+
+def load_alignment_metrics(output_dir: Path, vl_id: int) -> Dict:
+    """
+    Load alignment error metrics from a JSON sidecar file.
+
+    Parameters
+    ----------
+    output_dir : Path
+        Directory containing *_alignment_metrics.json files.
+    vl_id : int
+        Subject ID number.
+
+    Returns
+    -------
+    dict with keys: ribcage_error_rmse, ribcage_error_mean, ribcage_error_std,
+        ribcage_inlier_rmse, ribcage_inlier_mean, ribcage_inlier_std, sternum_error.
+        All values are None if the file does not exist.
+    """
+    vl_id_str = f"VL{vl_id:05d}"
+    json_path = output_dir / f"{vl_id_str}_alignment_metrics.json"
+    defaults = {
+        'ribcage_error_rmse': None,
+        'ribcage_error_mean': None,
+        'ribcage_error_std': None,
+        'ribcage_inlier_rmse': None,
+        'ribcage_inlier_mean': None,
+        'ribcage_inlier_std': None,
+        'sternum_error': None,
+    }
+    if not json_path.exists():
+        print(f"Warning: Alignment metrics not found at {json_path}")
+        return defaults
+    with open(json_path, 'r', encoding='utf-8') as f:
+        metrics = json.load(f)
+    # Merge with defaults so missing keys return None
+    return {**defaults, **metrics}
 
 
 def save_raw_data_to_excel(
@@ -1972,3 +1961,358 @@ def save_raw_data_to_excel(
         print(f"Raw data successfully saved to {excel_path}")
     except Exception as e:
         print(f"An error occurred while saving raw data: {e}")
+
+
+def save_processed_data_to_excel(
+        excel_path: Path,
+        correspondences: Dict[int, List[List[str]]],
+        all_subjects: Dict[int, Subject],
+        distance_results: Dict,
+        clockface_results: Dict,
+):
+    """
+    Save distance and clockface results to Excel (no alignment dependency).
+
+    Writes 3 sheets per registrar: processed_r1_data, processed_r2_data, processed_ave_data.
+    Each sheet contains distance-to-skin, distance-to-rib, clockface coordinates.
+    """
+    print("\nSaving processed data to Excel...\n============")
+
+    def _build_rows(registrar_name: str) -> List[Dict[str, any]]:
+        all_rows = []
+        for vl_id, pairs in correspondences.items():
+            if vl_id not in all_subjects:
+                continue
+            subject = all_subjects[vl_id]
+
+            for i, pair in enumerate(pairs):
+                lm_name = pair[0]
+
+                def get_data(results_dict: Dict, position: str, data_key: str, default=None):
+                    try:
+                        if data_key in ["skin_distances", "rib_distances", "skin_neighborhood_avg", "rib_neighborhood_avg"]:
+                            return results_dict[vl_id][position][registrar_name][data_key][lm_name]
+                        else:
+                            return results_dict[vl_id][position][registrar_name][lm_name][data_key]
+                    except (KeyError, TypeError):
+                        return default
+
+                row_data = {
+                    'VL_ID': vl_id,
+                    'Age': subject.age,
+                    'Height [m]': subject.height,
+                    'Weight [kg]': subject.weight,
+                    'Landmark name': lm_name,
+                    'Landmark type': lm_name.split('_')[0] if '_' in lm_name else lm_name,
+
+                    'landmark side (prone)': get_data(clockface_results, "prone", "side"),
+                    'Distance to nipple (prone) [mm]': get_data(clockface_results, "prone", "dist_to_nipple"),
+                    'Distance to rib cage (prone) [mm]': get_data(distance_results, "prone", "rib_distances"),
+                    'Distance to skin (prone) [mm]': get_data(distance_results, "prone", "skin_distances"),
+                    'Time (prone)': get_data(clockface_results, "prone", "time"),
+                    'Quadrant (prone)': get_data(clockface_results, "prone", "quadrant"),
+
+                    'landmark side (supine)': get_data(clockface_results, "supine", "side"),
+                    'Distance to nipple (supine) [mm]': get_data(clockface_results, "supine", "dist_to_nipple"),
+                    'Distance to rib cage (supine) [mm]': get_data(distance_results, "supine", "rib_distances"),
+                    'Distance to skin (supine) [mm]': get_data(distance_results, "supine", "skin_distances"),
+                    'Time (supine)': get_data(clockface_results, "supine", "time"),
+                    'Quadrant (supine)': get_data(clockface_results, "supine", "quadrant"),
+
+                    'Mask skin neighborhood avg (prone)': get_data(distance_results, "prone", "skin_neighborhood_avg"),
+                    'Mask rib neighborhood avg (prone)': get_data(distance_results, "prone", "rib_neighborhood_avg"),
+                    'Mask skin neighborhood avg (supine)': get_data(distance_results, "supine", "skin_neighborhood_avg"),
+                    'Mask rib neighborhood avg (supine)': get_data(distance_results, "supine", "rib_neighborhood_avg"),
+                }
+                all_rows.append(row_data)
+        return all_rows
+
+    def _write_sheet(writer, sheet_name: str, registrar_name: str, existing_sheets: dict):
+        print(f"  Building {registrar_name} data...")
+        rows = _build_rows(registrar_name)
+        df_new = pd.DataFrame(rows)
+        new_vl_ids = df_new['VL_ID'].unique() if not df_new.empty else []
+        new_cols = set(df_new.columns)
+
+        df_existing = existing_sheets.get(sheet_name, pd.DataFrame())
+        if not df_existing.empty and len(new_vl_ids) > 0:
+            # Preserve alignment columns for subjects being updated
+            extra_cols = [c for c in df_existing.columns if c not in new_cols]
+            if extra_cols:
+                # Extract old alignment data for subjects being updated
+                mask_update = df_existing['VL_ID'].isin(new_vl_ids)
+                df_old_align = df_existing.loc[mask_update, ['VL_ID', 'Landmark name'] + extra_cols].copy()
+
+                # Remove updated subjects from existing, keep others intact
+                df_existing = df_existing[~mask_update].copy()
+
+                # Merge preserved alignment columns back onto new processed rows
+                df_new = df_new.merge(df_old_align, on=['VL_ID', 'Landmark name'], how='left')
+            else:
+                df_existing = df_existing[~df_existing['VL_ID'].isin(new_vl_ids)].copy()
+
+        df_combined = pd.concat([df_existing, df_new], ignore_index=True)
+        df_combined = df_combined.sort_values(by=['VL_ID'], kind='stable').reset_index(drop=True)
+        df_combined.to_excel(writer, sheet_name=sheet_name, index=False)
+
+    excel_path.parent.mkdir(parents=True, exist_ok=True)
+
+    sheets = [
+        ('processed_r1_data', 'anthony'),
+        ('processed_r2_data', 'holly'),
+        ('processed_ave_data', 'average'),
+    ]
+
+    existing_sheets = {}
+    if excel_path.exists():
+        for sheet_name, _ in sheets:
+            try:
+                existing_sheets[sheet_name] = pd.read_excel(
+                    excel_path, sheet_name=sheet_name, engine='openpyxl'
+                )
+            except (ValueError, Exception):
+                pass
+
+    write_mode = 'a' if excel_path.exists() else 'w'
+    writer_kwargs = {'engine': 'openpyxl', 'mode': write_mode}
+    if write_mode == 'a':
+        writer_kwargs['if_sheet_exists'] = 'replace'
+
+    try:
+        with pd.ExcelWriter(excel_path, **writer_kwargs) as writer:
+            for sheet_name, registrar_name in sheets:
+                _write_sheet(writer, sheet_name, registrar_name, existing_sheets)
+        print(f"Processed data saved to {excel_path}")
+    except Exception as e:
+        print(f"Error saving processed data: {e}")
+
+
+def save_alignment_results_to_excel(
+        excel_path: Path,
+        correspondences: Dict[int, List[List[str]]],
+        all_subjects: Dict[int, Subject],
+        alignment_results_all: Dict[int, Dict],
+):
+    """
+    Append alignment displacement columns to existing processed_* sheets.
+
+    Merges alignment data into:
+        - processed_r1_data (anthony)
+        - processed_r2_data (holly)
+        - processed_ave_data (average)
+
+    Alignment columns are appended from column W onwards (after the
+    distance/clockface columns written by save_processed_data_to_excel).
+    Rows are matched on VL_ID + Landmark name.
+
+    If the processed sheets don't exist yet, alignment data is written
+    with its own VL_ID/Landmark name key columns so the sheet is still usable.
+    """
+    print("\nSaving alignment results to Excel...\n============")
+
+    def _build_alignment_rows(ld_prefix: str) -> List[Dict[str, any]]:
+        """Build alignment-only columns keyed by VL_ID + Landmark name."""
+        all_rows = []
+        for vl_id, pairs in correspondences.items():
+            if vl_id not in all_subjects:
+                continue
+            align_res = alignment_results_all.get(vl_id)
+
+            if align_res:
+                nipple_disp_mag = align_res.get("nipple_displacement_magnitudes", [None, None])
+                nipple_disp_vec = align_res.get("nipple_displacement_vectors", [[None] * 3, [None] * 3])
+                ribcage_error_rmse = align_res.get("ribcage_error_rmse", None)
+                ribcage_error_mean = align_res.get("ribcage_error_mean", None)
+                ribcage_error_std = align_res.get("ribcage_error_std", None)
+                ribcage_inlier_rmse = align_res.get("ribcage_inlier_rmse", None)
+                ribcage_inlier_mean = align_res.get("ribcage_inlier_mean", None)
+                ribcage_inlier_std = align_res.get("ribcage_inlier_std", None)
+
+                # Convert sternum/nipple to sternum-centered coordinates
+                _st_prone_t = np.array(align_res.get("sternum_prone_transformed", [[0]*3, [0]*3]))
+                _st_supine = np.array(align_res.get("sternum_supine", [[0]*3, [0]*3]))
+                _nip_prone_t = np.array(align_res.get("nipple_prone_transformed", [[0]*3, [0]*3]))
+                _nip_supine = np.array(align_res.get("nipple_supine", [[0]*3, [0]*3]))
+
+                ref_prone = _st_prone_t[0]   # sternum superior prone transformed
+                ref_supine = _st_supine[0]   # sternum superior supine
+
+                sternum_prone_transformed = _st_prone_t - ref_prone
+                sternum_supine = _st_supine - ref_supine
+                nipple_prone_transformed = _nip_prone_t - ref_prone
+                nipple_supine = _nip_supine - ref_supine
+            else:
+                nipple_disp_mag = [None, None]
+                nipple_disp_vec = [[None] * 3, [None] * 3]
+                nipple_prone_transformed = [[None] * 3, [None] * 3]
+                nipple_supine = [[None] * 3, [None] * 3]
+                sternum_prone_transformed = [[None] * 3, [None] * 3]
+                sternum_supine = [[None] * 3, [None] * 3]
+                ribcage_error_rmse = None
+                ribcage_error_mean = None
+                ribcage_error_std = None
+                ribcage_inlier_rmse = None
+                ribcage_inlier_mean = None
+                ribcage_inlier_std = None
+
+            for i, pair in enumerate(pairs):
+                lm_name = pair[0]
+
+                if align_res:
+                    lm_prone_rel = align_res.get(f"{ld_prefix}_prone_rel_sternum", [[None] * 3] * len(pairs))[i]
+                    lm_supine_rel = align_res.get(f"{ld_prefix}_supine_rel_sternum", [[None] * 3] * len(pairs))[i]
+                    lm_disp_mag = align_res.get(f"{ld_prefix}_displacement_magnitudes", [None] * len(pairs))[i]
+                    lm_disp_vec = align_res.get(f"{ld_prefix}_displacement_vectors", [[None] * 3] * len(pairs))[i]
+                    lm_rel_mag = align_res.get(f"{ld_prefix}_rel_nipple_magnitudes", [None] * len(pairs))[i]
+                    lm_rel_vec = align_res.get(f"{ld_prefix}_rel_nipple_vectors", [[None] * 3] * len(pairs))[i]
+                else:
+                    lm_prone_rel = [None] * 3
+                    lm_supine_rel = [None] * 3
+                    lm_disp_mag = None
+                    lm_disp_vec = [None] * 3
+                    lm_rel_mag = None
+                    lm_rel_vec = [None] * 3
+
+                row_data = {
+                    # Keys for merging
+                    'VL_ID': vl_id,
+                    'Landmark name': lm_name,
+
+                    # Alignment columns (column W onwards)
+                    "ribcage error rmse": ribcage_error_rmse,
+                    "ribcage error mean": ribcage_error_mean,
+                    "ribcage error std": ribcage_error_std,
+                    "ribcage anterior rmse": ribcage_inlier_rmse,
+                    "ribcage anterior mean": ribcage_inlier_mean,
+                    "ribcage anterior std": ribcage_inlier_std,
+
+                    "sternum superior prone transformed x": sternum_prone_transformed[0][0],
+                    "sternum superior prone transformed y": sternum_prone_transformed[0][1],
+                    "sternum superior prone transformed z": sternum_prone_transformed[0][2],
+                    "sternum superior supine x": sternum_supine[0][0],
+                    "sternum superior supine y": sternum_supine[0][1],
+                    "sternum superior supine z": sternum_supine[0][2],
+
+                    "left nipple prone transformed x": nipple_prone_transformed[0][0],
+                    "left nipple prone transformed y": nipple_prone_transformed[0][1],
+                    "left nipple prone transformed z": nipple_prone_transformed[0][2],
+                    "right nipple prone transformed x": nipple_prone_transformed[1][0],
+                    "right nipple prone transformed y": nipple_prone_transformed[1][1],
+                    "right nipple prone transformed z": nipple_prone_transformed[1][2],
+
+                    "left nipple supine x": nipple_supine[0][0],
+                    "left nipple supine y": nipple_supine[0][1],
+                    "left nipple supine z": nipple_supine[0][2],
+                    "right nipple supine x": nipple_supine[1][0],
+                    "right nipple supine y": nipple_supine[1][1],
+                    "right nipple supine z": nipple_supine[1][2],
+
+                    "landmark prone transformed x": lm_prone_rel[0],
+                    "landmark prone transformed y": lm_prone_rel[1],
+                    "landmark prone transformed z": lm_prone_rel[2],
+                    "landmark supine x": lm_supine_rel[0],
+                    "landmark supine y": lm_supine_rel[1],
+                    "landmark supine z": lm_supine_rel[2],
+
+                    'Left nipple displacement [mm]': nipple_disp_mag[0],
+                    'Right nipple displacement [mm]': nipple_disp_mag[1],
+
+                    'Left nipple displacement vector vx': nipple_disp_vec[0][0],
+                    'Left nipple displacement vector vy': nipple_disp_vec[0][1],
+                    'Left nipple displacement vector vz': nipple_disp_vec[0][2],
+
+                    'Right nipple displacement vector vx': nipple_disp_vec[1][0],
+                    'Right nipple displacement vector vy': nipple_disp_vec[1][1],
+                    'Right nipple displacement vector vz': nipple_disp_vec[1][2],
+
+                    'Landmark displacement [mm]': lm_disp_mag,
+                    'Landmark displacement relative to nipple [mm]': lm_rel_mag,
+
+                    'Landmark displacement vector vx': lm_disp_vec[0],
+                    'Landmark displacement vector vy': lm_disp_vec[1],
+                    'Landmark displacement vector vz': lm_disp_vec[2],
+
+                    'Landmark relative to nipple vector vx': lm_rel_vec[0],
+                    'Landmark relative to nipple vector vy': lm_rel_vec[1],
+                    'Landmark relative to nipple vector vz': lm_rel_vec[2],
+                }
+                all_rows.append(row_data)
+        return all_rows
+
+    def _merge_into_sheet(writer, sheet_name: str, ld_prefix: str, existing_sheets: dict):
+        """Merge alignment columns into existing processed sheet."""
+        print(f"  Building {ld_prefix} alignment data...")
+        align_rows = _build_alignment_rows(ld_prefix)
+        df_align = pd.DataFrame(align_rows)
+
+        if df_align.empty:
+            print(f"  No alignment data to write for {sheet_name}")
+            return
+
+        df_existing = existing_sheets.get(sheet_name, pd.DataFrame())
+
+        # Alignment columns (everything except the merge keys)
+        align_cols = [c for c in df_align.columns if c not in ('VL_ID', 'Landmark name')]
+
+        if not df_existing.empty:
+            # Only clear alignment columns for subjects being updated
+            new_vl_ids = set(df_align['VL_ID'].unique())
+            cols_to_drop = [c for c in align_cols if c in df_existing.columns]
+
+            if cols_to_drop:
+                # Split: rows being updated vs rows to preserve
+                mask_update = df_existing['VL_ID'].isin(new_vl_ids)
+                df_keep = df_existing[~mask_update].copy()
+                df_update = df_existing[mask_update].drop(columns=cols_to_drop)
+
+                # Merge new alignment into the rows being updated
+                df_updated = df_update.merge(
+                    df_align, on=['VL_ID', 'Landmark name'], how='outer'
+                )
+
+                # Recombine with preserved rows
+                df_combined = pd.concat([df_keep, df_updated], ignore_index=True)
+            else:
+                # No existing alignment columns — just outer merge
+                df_combined = df_existing.merge(
+                    df_align, on=['VL_ID', 'Landmark name'], how='outer'
+                )
+        else:
+            # No existing processed sheet — write alignment data standalone
+            df_combined = df_align
+
+        df_combined = df_combined.sort_values(by=['VL_ID'], kind='stable').reset_index(drop=True)
+        df_combined.to_excel(writer, sheet_name=sheet_name, index=False)
+
+    excel_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Write into the same sheets that save_processed_data_to_excel creates
+    sheets = [
+        ('processed_r1_data', 'ld_anthony'),
+        ('processed_r2_data', 'ld_holly'),
+        ('processed_ave_data', 'ld_ave'),
+    ]
+
+    # Load existing sheets
+    existing_sheets = {}
+    if excel_path.exists():
+        for sheet_name, _ in sheets:
+            try:
+                existing_sheets[sheet_name] = pd.read_excel(
+                    excel_path, sheet_name=sheet_name, engine='openpyxl'
+                )
+            except (ValueError, Exception):
+                pass
+
+    write_mode = 'a' if excel_path.exists() else 'w'
+    writer_kwargs = {'engine': 'openpyxl', 'mode': write_mode}
+    if write_mode == 'a':
+        writer_kwargs['if_sheet_exists'] = 'replace'
+
+    try:
+        with pd.ExcelWriter(excel_path, **writer_kwargs) as writer:
+            for sheet_name, ld_prefix in sheets:
+                _merge_into_sheet(writer, sheet_name, ld_prefix, existing_sheets)
+        print(f"Alignment results saved to {excel_path}")
+    except Exception as e:
+        print(f"Error saving alignment results: {e}")

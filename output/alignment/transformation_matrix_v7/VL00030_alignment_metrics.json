@@ -1,0 +1,9 @@
+{
+  "ribcage_error_rmse": 6.84413321767209,
+  "ribcage_error_mean": 4.902293022902472,
+  "ribcage_error_std": 4.7759483475896465,
+  "ribcage_inlier_rmse": 4.052957648998707,
+  "ribcage_inlier_mean": 3.5604486733750673,
+  "ribcage_inlier_std": 1.9364067105953873,
+  "sternum_error": 0.0
+}

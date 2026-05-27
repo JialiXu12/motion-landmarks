@@ -1,0 +1,65 @@
+Analysis started: 2026-02-10 18:40:34
+Output will be saved to: ..\output\analysis_output_v6_2026_02_10_184034.txt
+================================================================================
+Successfully loaded 3 sheets.
+   Registrar Registrar_name  VL_ID  ...           x          y          z
+0          1        anthony      9  ... -129.135058  17.089070 -23.051826
+1          1        anthony      9  ...   83.845016 -14.541644 -70.751824
+2          1        anthony      9  ...  121.559646  48.610686 -14.051826
+3          1        anthony      9  ...  126.041470  57.126153 -14.051826
+4          1        anthony      9  ... -153.169205   4.307810   2.974062
+
+[5 rows x 9 columns]
+   VL_ID  ...  Mask rib neighborhood avg (supine)
+0      9  ...                            1.588158
+1      9  ...                            1.588158
+2      9  ...                            1.588158
+3     11  ...                            1.495613
+4     11  ...                            1.495613
+
+[5 rows x 67 columns]
+Number of unique subjects: 63
+
+Analysis Summary:
+             Age        BMI
+count  63.000000  63.000000
+mean   42.492063  24.391972
+std    14.616466   3.808022
+min    20.000000  17.993080
+25%    29.000000  21.664728
+50%    43.000000  23.422091
+75%    54.000000  26.743177
+max    75.000000  35.651338
+--- Age Group Distribution ---
+Age_Group
+18-24     8
+25-44    24
+45-64    28
+65+       3
+Name: count, dtype: int64
+
+--- BMI Group Distribution ---
+BMI_Group
+Underweight/Normal    41
+Overweight            15
+Obese                  7
+Name: count, dtype: int64
+
+--- Data Preview ---
+    VL_ID  Age        BMI Age_Group           BMI_Group
+0       9   41  29.757585     25-44          Overweight
+3      11   29  20.428357     25-44  Underweight/Normal
+6      12   41  23.422091     25-44  Underweight/Normal
+9      14   20  22.491349     18-24  Underweight/Normal
+11     15   42  23.814967     25-44  Underweight/Normal
+
+Ribcage alignment RMSE:
+count    63.000000
+mean     10.817360
+std       4.589468
+min       4.876737
+25%       7.333340
+50%       9.455516
+75%      13.804943
+max      25.896969
+Name: ribcage error rmse, dtype: float64

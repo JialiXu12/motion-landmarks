@@ -140,6 +140,7 @@ def plot_all(
 
     # 4. Plot Mesh
     if mesh is not None:
+        mesh_plotted = False
         try:
             mesh_meshio = mesh_tools.morphic_to_meshio(mesh, triangulate=True, res=4, exterior_only=True)
             plotter.add_mesh(
@@ -151,8 +152,25 @@ def plot_all(
                 label='Surface_mesh'
             )
             print("INFO: Plotted Surface Mesh.")
+            mesh_plotted = True
         except Exception as e:
-            print(f"WARNING: Could not plot mesh. Error: {e}")
+            print(f"WARNING: Could not plot mesh with morphic_to_meshio: {e}")
+            print("INFO: Falling back to point cloud visualization for mesh")
+
+            # Fallback: Try to extract mesh nodes and plot as point cloud
+            try:
+                mesh_nodes = mesh.get_nodes()
+                plotter.add_points(
+                    mesh_nodes,
+                    color='#FFCCCC',
+                    render_points_as_spheres=True,
+                    point_size=3,
+                    label='Mesh_nodes'
+                )
+                print("INFO: Plotted mesh nodes as point cloud (fallback).")
+                mesh_plotted = True
+            except Exception as e2:
+                print(f"WARNING: Could not extract mesh nodes: {e2}")
 
     if mesh_points is not None:
         try:
@@ -160,7 +178,7 @@ def plot_all(
                 mesh_points,
                 color='gray',
                 render_points_as_spheres=True,
-                point_size=3,
+                point_size=2,
                 label='3D coordinates of a surface mesh'
             )
             print("INFO: Plotted 3D coordinates of a Surface Mesh.")

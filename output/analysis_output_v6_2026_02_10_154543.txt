@@ -1,0 +1,4 @@
+Analysis started: 2026-02-10 15:45:43
+Output will be saved to: ..\output\analysis_output_v6_2026_02_10_154543.txt
+================================================================================
+Error reading file: 'demographic'

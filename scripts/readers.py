@@ -186,7 +186,7 @@ def _load_scan_data(
     vl_id_str = f"{vl_id:05d}"
 
     # 1. Construct all paths
-    dicom_dir = dicom_root / f"VL{vl_id_str}" / position
+    dicom_dir = dicom_root / f"VL{vl_id_str}" / position if dicom_root is not None else None
     anatomical_json_root = anatomical_json_base_root / position / "landmarks"
     filename = f"VL{vl_id_str}_skeleton_data_{position}_t2.json"
     primary_path = anatomical_json_root / filename
@@ -204,9 +204,13 @@ def _load_scan_data(
         )
 
     # 2. Load DICOM Image and Metadata
-    # scan_obj, subject_meta = read_dicom_data(dicom_dir)
-    scan_obj = None
-    subject_meta = {}
+    if dicom_root is not None:
+        scan_obj, subject_meta = read_dicom_data(dicom_dir)
+    else:
+        print(f"  INFO: No DICOM root provided for VL{vl_id_str} ({position}) "
+              f"- skipping DICOM loading")
+        scan_obj = None
+        subject_meta = {}
 
     # 3. Load Anatomical Landmarks
     anatomical_landmarks = read_anatomical_landmarks(anatomical_json_path)

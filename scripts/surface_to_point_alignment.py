@@ -405,6 +405,9 @@ def surface_to_point_align(
         skip_reciprocal_filter: bool = False,
         debug_filter_plot: bool = False,
         debug_filter_save_path: str = None,
+        plot_results: bool = True,
+        icp_label: str = "",
+        plot_eval: bool = True,
 ) -> Tuple[np.ndarray, np.ndarray, Dict]:
     """
     Plane-to-point ICP with sternum superior fixed at origin.
@@ -567,17 +570,24 @@ def surface_to_point_align(
         normals_rot = (R_total @ normals_raw.T).T
 
         # --- 2. Find correspondences within radius ---
+        n_before_dist = len(src_centered)
         src_idx, tgt_idx, dists = find_correspondences_within_radius(
             src_centered, tgt_centered, max_distance, tree=tgt_tree
         )
 
         n_corr = len(src_idx)
+        if verbose and it == 0:
+            print(f"  [Iter 1] max_correspondence_distance={max_distance}: "
+                  f"{n_before_dist} -> {n_corr} points "
+                  f"({n_before_dist - n_corr} removed)")
+
         if n_corr < 6:
             if verbose:
                 print(f"  Iter {it+1}: only {n_corr} correspondences, stopping")
             break
 
         # --- 3. Trim worst correspondences ---
+        n_before_trim = n_corr
         if trim_percentage > 0 and n_corr > 20:
             threshold = np.percentile(dists, (1.0 - trim_percentage) * 100)
             keep = dists <= threshold
@@ -585,6 +595,10 @@ def surface_to_point_align(
             tgt_idx = tgt_idx[keep]
             dists = dists[keep]
             n_corr = len(src_idx)
+        if verbose and it == 0:
+            print(f"  [Iter 1] trim_percentage={trim_percentage}: "
+                  f"{n_before_trim} -> {n_corr} points "
+                  f"({n_before_trim - n_corr} removed)")
 
         # --- 3b. Many-to-one diagnostic ---
         unique_targets, counts = np.unique(tgt_idx, return_counts=True)
@@ -628,7 +642,7 @@ def surface_to_point_align(
                           f"local_density={n_local} pts{boundary_flag}")
 
         # --- 3c. Plot many-to-one diagnostic (first iteration only) ---
-        if verbose and it == 0 and n_duplicated > 0:
+        if plot_results and verbose and it == 0 and n_duplicated > 0:
             _plot_many_to_one(
                 src_centered, tgt_centered, src_idx, tgt_idx,
                 counts, unique_targets,
@@ -747,47 +761,60 @@ def surface_to_point_align(
     info['euler_angles_deg'] = {'angle_x': angle_x, 'angle_y': angle_y, 'angle_z': angle_z}
     info['total_rotation_deg'] = total_angle
 
-    convergence_save_path = Path(__file__).parent.parent / "output" / "figs" / f"convergence_{vl_id}.png"
-    plot_convergence_diagram(info, save_path=str(convergence_save_path))
+    if plot_results:
+        convergence_save_path = Path(__file__).parent.parent / "output" / "figs" / f"convergence_{vl_id}.png"
+        plot_convergence_diagram(info, save_path=str(convergence_save_path))
 
     # --- Visualize aligned mesh and target point cloud (alignment regions only) ---
     # Transform aligned mesh to target coordinate frame (add back sternum offset)
     aligned_mesh_in_target_frame = src_final_c + tgt_ss
     target_pts_in_target_frame = tgt_centered + tgt_ss
 
-    # alignment_plot_save_path = Path(__file__).parent.parent / "output" / "figs" / f"alignment_result_{vl_id}.png"
-    plot_alignment_result(
-        aligned_mesh_pts=aligned_mesh_in_target_frame,
-        target_pts=target_pts_in_target_frame,
-        sternum_pos=tgt_ss,
-        title=f"Plane-to-Point ICP Alignment - {vl_id}",
-        save_path=None,
-        show_correspondences=False,
-    )
-    plot_all(
-        point_cloud=target_pts_in_target_frame,
-        mesh_points=aligned_mesh_in_target_frame,
-        anat_landmarks=tgt_ss,
-    )
+    if plot_results:
+        # alignment_plot_save_path = Path(__file__).parent.parent / "output" / "figs" / f"alignment_result_{vl_id}.png"
+        plot_alignment_result(
+            aligned_mesh_pts=aligned_mesh_in_target_frame,
+            target_pts=target_pts_in_target_frame,
+            sternum_pos=tgt_ss,
+            title=f"Plane-to-Point ICP Alignment - {vl_id}",
+            save_path=None,
+            show_correspondences=False,
+        )
+        plot_all(
+            point_cloud=target_pts_in_target_frame,
+            mesh_points=aligned_mesh_in_target_frame,
+            anat_landmarks=tgt_ss,
+        )
 
     error, mapped_idx = breast_metadata.closest_distances(
         aligned_mesh_in_target_frame, target_pts_in_target_frame
     )
     rib_error_mag = np.linalg.norm(error, axis=1)
 
-    # Error visualization - full mesh (prone tosupine)
-    plot_evaluate_alignment(
-        supine_pts=target_pts_in_target_frame,
-        transformed_prone_mesh=aligned_mesh_in_target_frame,
-        distances=rib_error_mag,
-        idxs=mapped_idx,
-        worst_n=60,
-        cmap="viridis",
-        point_size=3,
-        arrow_scale=20,
-        show_scalar_bar=True,
-        return_data=False
-    )
+    # Store eval data so caller can plot once after winner selection
+    error_title = f"{vl_id} — {icp_label} — Alignment Error" if icp_label else f"{vl_id} — Alignment Error"
+    info['eval_data'] = {
+        'supine_pts': target_pts_in_target_frame,
+        'transformed_prone_mesh': aligned_mesh_in_target_frame,
+        'distances': rib_error_mag,
+        'idxs': mapped_idx,
+        'title': error_title,
+    }
+
+    if plot_eval:
+        plot_evaluate_alignment(
+            supine_pts=target_pts_in_target_frame,
+            transformed_prone_mesh=aligned_mesh_in_target_frame,
+            distances=rib_error_mag,
+            idxs=mapped_idx,
+            worst_n=60,
+            cmap="viridis",
+            point_size=3,
+            arrow_scale=20,
+            show_scalar_bar=True,
+            return_data=False,
+            title=error_title,
+        )
 
     return R_total, T_total, info
 

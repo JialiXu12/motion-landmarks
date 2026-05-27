@@ -24,7 +24,7 @@ from statsmodels.stats.multicomp import MultiComparison
 from pingouin import welch_anova, pairwise_gameshowell, rm_anova, pairwise_ttests
 
 from plot_nipple_relative_vectors import plot_nipple_relative_vectors
-
+from plot_polar_plots import analyse_clock_position_rotation as analyse_clock_position_rotation_polar
 from partial_correlation import test_partial_correlation
 
 
@@ -51,8 +51,8 @@ class Tee:
 
 
 OUTPUT_DIR = Path("../output")
-EXCEL_FILE_PATH = OUTPUT_DIR / "landmark_results_v5_2026_01_21.xlsx"
-LOG_FILE_PATH = OUTPUT_DIR / f"analysis_output_{datetime.now().strftime('%Y_%m_%d_%H%M%S')}.txt"
+EXCEL_FILE_PATH = OUTPUT_DIR / "landmark_results_v6_2026_02_10.xlsx"
+LOG_FILE_PATH = OUTPUT_DIR / f"analysis_output_v6_{datetime.now().strftime('%Y_%m_%d_%H%M%S')}.txt"
 
 
 def read_data(excel_path):
@@ -466,11 +466,154 @@ def plot_bmi_correlations(df, output_filename='BMI_Shift_Correlations.png'):
     plt.tight_layout()
 
     # Save and show
-    save_path = Path("..") / "output" / "figs" / "v5" / "BMI" / output_filename
+    save_path = Path("..") / "output" / "figs" / "v6" / "BMI" / output_filename
     save_path.parent.mkdir(parents=True, exist_ok=True)  # Create directory if it doesn't exist
     plt.savefig(save_path, dpi=300)
     plt.show()
     print(f"Visualization complete. Plot saved as '{save_path}'")
+
+
+def compare_distance_metrics(df_ave, position='prone'):
+    """
+    Compare DTS, DTN, and DTR distance metrics against each other.
+
+    Args:
+        df_ave (pd.DataFrame): DataFrame with distance measurements
+        position (str): Either 'prone' or 'supine'
+
+    Returns:
+        dict: Results dictionary with test statistics and p-values
+    """
+    print("\n" + "=" * 120)
+    print(f"STATISTICAL COMPARISON: DTS vs DTN vs DTR ({position.upper()} Position)")
+    print("=" * 120)
+    print(f"\nResearch Question: Are DTS, DTN, DTR significantly different from each other in {position} position?")
+    print("=" * 120)
+
+    # Find common indices (paired data)
+    distance_cols = [
+        f'Distance to skin ({position}) [mm]',
+        f'Distance to nipple ({position}) [mm]',
+        f'Distance to rib cage ({position}) [mm]'
+    ]
+
+    common_idx = df_ave[distance_cols].dropna().index
+
+    dts_data = df_ave.loc[common_idx, f'Distance to skin ({position}) [mm]'].values
+    dtn_data = df_ave.loc[common_idx, f'Distance to nipple ({position}) [mm]'].values
+    dtr_data = df_ave.loc[common_idx, f'Distance to rib cage ({position}) [mm]'].values
+
+    n_samples = len(dts_data)
+
+    print(f"\nSample size (paired): N = {n_samples}")
+    print(f"\nDescriptive Statistics ({position.title()}):")
+    print(f"  DTS (Skin):     {dts_data.mean():.2f} ± {dts_data.std():.2f} mm")
+    print(f"  DTN (Nipple):   {dtn_data.mean():.2f} ± {dtn_data.std():.2f} mm")
+    print(f"  DTR (Rib Cage): {dtr_data.mean():.2f} ± {dtr_data.std():.2f} mm")
+
+    results = {
+        'position': position,
+        'n': n_samples,
+        'means': {
+            'DTS': dts_data.mean(),
+            'DTN': dtn_data.mean(),
+            'DTR': dtr_data.mean()
+        }
+    }
+
+    # Test normality for each metric
+    print(f"\nNormality Tests (Shapiro-Wilk):")
+    _, p_dts = stats.shapiro(dts_data)
+    _, p_dtn = stats.shapiro(dtn_data)
+    _, p_dtr = stats.shapiro(dtr_data)
+
+    print(f"  DTS: p = {p_dts:.4f} {'(Normal)' if p_dts > 0.05 else '(Non-normal)'}")
+    print(f"  DTN: p = {p_dtn:.4f} {'(Normal)' if p_dtn > 0.05 else '(Non-normal)'}")
+    print(f"  DTR: p = {p_dtr:.4f} {'(Normal)' if p_dtr > 0.05 else '(Non-normal)'}")
+
+    # Decide on parametric vs non-parametric test
+    all_normal = (p_dts > 0.05) and (p_dtn > 0.05) and (p_dtr > 0.05)
+
+    if all_normal:
+        # Use Repeated Measures ANOVA
+        print(f"\n→ Using Repeated Measures ANOVA (data is normally distributed)")
+
+        # Prepare data in long format for rm_anova
+        data_long = pd.DataFrame({
+            'subject': np.tile(np.arange(n_samples), 3),
+            'metric': np.repeat(['DTS', 'DTN', 'DTR'], n_samples),
+            'distance': np.concatenate([dts_data, dtn_data, dtr_data])
+        })
+
+        # Run repeated measures ANOVA
+        rm_results = pg.rm_anova(data=data_long, dv='distance', within='metric', subject='subject')
+
+        print(f"\nRepeated Measures ANOVA Results:")
+        print(f"  F({rm_results['ddof1'].values[0]:.0f}, {rm_results['ddof2'].values[0]:.0f}) = {rm_results['F'].values[0]:.3f}")
+        print(f"  p-value = {rm_results['p-unc'].values[0]:.4e}")
+        print(f"  Effect size (partial η²) = {rm_results['np2'].values[0]:.3f}")
+
+        p_omnibus = rm_results['p-unc'].values[0]
+        results['test'] = 'RM-ANOVA'
+        results['statistic'] = rm_results['F'].values[0]
+        results['p_value'] = p_omnibus
+        results['effect_size'] = rm_results['np2'].values[0]
+
+        if p_omnibus < 0.05:
+            print(f"  ✓ Significant difference detected (p < 0.05)")
+
+            # Post-hoc pairwise comparisons with Bonferroni correction
+            print(f"\nPost-hoc Pairwise Comparisons (Bonferroni corrected):")
+            posthoc = pg.pairwise_ttests(data=data_long, dv='distance', within='metric',
+                                        subject='subject', padjust='bonf')
+
+            results['posthoc'] = {}
+            for idx, row in posthoc.iterrows():
+                contrast = f"{row['A']} vs {row['B']}"
+                p_adj = row['p-corr']
+                sig = "***" if p_adj < 0.001 else "**" if p_adj < 0.01 else "*" if p_adj < 0.05 else "ns"
+                print(f"  {contrast:20s}: p = {p_adj:.4e} ({sig})")
+                results['posthoc'][contrast] = {'p': p_adj, 'sig': sig}
+        else:
+            print(f"  ✗ No significant difference (p ≥ 0.05)")
+
+    else:
+        # Use Friedman test (non-parametric alternative)
+        print(f"\n→ Using Friedman Test (non-parametric, data not normally distributed)")
+
+        friedman_stat, p_friedman = stats.friedmanchisquare(dts_data, dtn_data, dtr_data)
+
+        print(f"\nFriedman Test Results:")
+        print(f"  χ²(2) = {friedman_stat:.3f}")
+        print(f"  p-value = {p_friedman:.4e}")
+
+        results['test'] = 'Friedman'
+        results['statistic'] = friedman_stat
+        results['p_value'] = p_friedman
+
+        if p_friedman < 0.05:
+            print(f"  ✓ Significant difference detected (p < 0.05)")
+
+            # Post-hoc Wilcoxon signed-rank tests with Bonferroni correction
+            print(f"\nPost-hoc Pairwise Comparisons (Wilcoxon with Bonferroni correction):")
+            comparisons = [
+                ('DTS vs DTN', dts_data, dtn_data),
+                ('DTS vs DTR', dts_data, dtr_data),
+                ('DTN vs DTR', dtn_data, dtr_data)
+            ]
+
+            results['posthoc'] = {}
+            for name, data1, data2 in comparisons:
+                _, p_wilcox = stats.wilcoxon(data1, data2)
+                p_corrected = min(p_wilcox * 3, 1.0)  # Bonferroni correction
+                sig = "***" if p_corrected < 0.001 else "**" if p_corrected < 0.01 else "*" if p_corrected < 0.05 else "ns"
+                print(f"  {name:20s}: p = {p_corrected:.4e} ({sig})")
+                results['posthoc'][name] = {'p': p_corrected, 'sig': sig}
+        else:
+            print(f"  ✗ No significant difference (p ≥ 0.05)")
+
+    print("\n" + "=" * 120)
+    return results
 
 
 def investigate_proximity_effect(df):
@@ -1041,7 +1184,7 @@ def plot_vectors_rel_sternum(df_ave, color_by='breast', vl_id=None, data_type='l
         else:
             filename = f"{data_prefix}_rel_sternum_{plane_name}.png"
 
-        save_path = Path("..") / "output" / "figs" / "v5" / "landmark vectors" / filename
+        save_path = Path("..") / "output" / "figs" / "v6" / "landmark vectors" / filename
         save_path.parent.mkdir(parents=True, exist_ok=True)
         plt.savefig(save_path, dpi=300)
         print(f"Saved: {save_path}")
@@ -1245,7 +1388,7 @@ def _plot_dual_sagittal_view_sternum(
     else:
         filename = f"{data_prefix}_rel_sternum_sagittal_dual.png"
 
-    save_path = Path("..") / "output" / "figs" / "v5" / "landmark vectors" / filename
+    save_path = Path("..") / "output" / "figs" / "v6" / "landmark vectors" / filename
     save_path.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(save_path, dpi=300)
     print(f"Saved: {save_path}")
@@ -1881,7 +2024,7 @@ def plot_3panel_displacement_mechanism(df_ave, save_path=None):
 #     else:
 #         filename = "Vectors_rel_sternum_sagittal_dual.png"
 #
-#     save_path = Path("..") / "output" / "figs" / "v5" / "landmark vectors" / filename
+#     save_path = Path("..") / "output" / "figs" / "v6" / "landmark vectors" / filename
 #     save_path.parent.mkdir(parents=True, exist_ok=True)
 #     plt.savefig(save_path, dpi=300)
 #     print(f"Saved: {save_path}")
@@ -2150,623 +2293,25 @@ def calculate_clock_position(y, z):
     return clock_position, angle_degrees
 
 
+# ==============================================================================
+# NOTE: analyse_clock_position_rotation function has been MOVED to plot_polar_plots.py
+# The function in plot_polar_plots.py uses ax.annotate() with proper arrowprops
+# which correctly draws arrows pointing in the direction of movement.
+#
+# Import and use:
+#   from plot_polar_plots import analyse_clock_position_rotation as analyse_clock_position_rotation_polar
+#
+# The old implementation below used marker='>' which doesn't rotate based on direction.
+# ==============================================================================
+
 def analyse_clock_position_rotation(df_ave, base_left=None, base_right=None, vec_left=None, vec_right=None, save_dir=None):
     """
-    Analyze clock position rotation from prone to supine, focusing on gravity-induced
-    lateral displacement. Creates polar plots showing rotation patterns.
-
-    Tests the hypothesis: "We observed a mean clockwise rotation of X hours (Y degrees)
-    for left-sided tumors, consistent with gravity-induced lateral displacement in the
-    supine position."
-
-    Args:
-        df_ave: DataFrame with landmark data including nipple-relative positions
-        base_left: Nx3 array of prone landmark positions relative to left nipple (from plot_nipple_relative_landmarks)
-        base_right: Nx3 array of prone landmark positions relative to right nipple (from plot_nipple_relative_landmarks)
-        vec_left: Nx3 array of displacement vectors for left breast (from plot_nipple_relative_landmarks)
-        vec_right: Nx3 array of displacement vectors for right breast (from plot_nipple_relative_landmarks)
-        save_dir: Directory to save plots (default: ../output/figs/clock_analysis/)
+    DEPRECATED: This function now delegates to plot_polar_plots.analyse_clock_position_rotation
+    which has proper arrow directions using ax.annotate() instead of scatter markers.
     """
-    print("\n" + "="*80)
-    print("CLOCK POSITION ROTATION ANALYSIS")
-    print("="*80)
-
-    if save_dir is None:
-        save_dir = Path("..") / "output" / "figs" / "v5" / "clock_analysis"
-    save_dir = Path(save_dir)
-    save_dir.mkdir(parents=True, exist_ok=True)
-
-    # Calculate nipple-relative positions for prone and supine
-    df = df_ave.copy()
-
-    # Separate left and right breasts
-    df_left = df[df['landmark side (prone)'] == 'LB'].copy()
-    df_right = df[df['landmark side (prone)'] == 'RB'].copy()
-
-    # Helper function to compute clock angles and radii from nipple-relative coordinates
-    def compute_clock_positions(base_points, vectors):
-        """
-        Compute clock positions (angle and radius) from nipple-relative coordinates.
-        Uses coronal plane projection (X, Z) for 2D clock face.
-
-        Args:
-            base_points: Nx3 array of prone positions relative to nipple [X, Y, Z]
-            vectors: Nx3 array of displacement vectors [dX, dY, dZ]
-
-        Returns:
-            angle_prone, angle_supine, distance_prone, distance_supine, angle_rotation, clock_rotation
-        """
-        if len(base_points) == 0:
-            return np.array([]), np.array([]), np.array([]), np.array([]), np.array([]), np.array([])
-
-        # Prone positions (already relative to nipple)
-        prone_x = base_points[:, 0]  # X: right-left
-        prone_y = base_points[:, 1]  # Y: ant-post
-        prone_z = base_points[:, 2]  # Z: inf-sup
-
-        # Supine positions
-        supine_x = prone_x + vectors[:, 0]
-        supine_y = prone_y + vectors[:, 1]
-        supine_z = prone_z + vectors[:, 2]
-
-        # Clock face uses coronal plane (X, Z)
-        # Angle: 0° = superior (12 o'clock), positive = clockwise
-        # arctan2(x, z) gives angle where 0 = +Z axis, positive toward +X
-        angle_prone = np.degrees(np.arctan2(prone_x, prone_z))
-        angle_supine = np.degrees(np.arctan2(supine_x, supine_z))
-
-        # Normalize to [0, 360)
-        angle_prone = (angle_prone + 360) % 360
-        angle_supine = (angle_supine + 360) % 360
-
-        # Distance (radius on coronal plane)
-        distance_prone = np.sqrt(prone_x**2 + prone_z**2)
-        distance_supine = np.sqrt(supine_x**2 + supine_z**2)
-
-        # Calculate rotation (handle wraparound)
-        angle_diff = angle_supine - angle_prone
-        # Normalize to [-180, 180]
-        angle_diff = np.where(angle_diff > 180, angle_diff - 360, angle_diff)
-        angle_diff = np.where(angle_diff < -180, angle_diff + 360, angle_diff)
-
-        clock_rotation = angle_diff / 30.0  # Convert to hours
-
-        return angle_prone, angle_supine, distance_prone, distance_supine, angle_diff, clock_rotation
-
-    # Calculate clock positions for each breast using nipple-relative coordinates
-    processed_dfs = {}
-
-    for breast_side, df_orig, base_points, vectors in [
-        ('Left', df_left, base_left, vec_left),
-        ('Right', df_right, base_right, vec_right)
-    ]:
-        if len(df_orig) == 0 or base_points is None or len(base_points) == 0:
-            continue
-
-        # Work on a copy
-        df_subset = df_orig.copy()
-
-        # Ensure we have matching lengths
-        if len(df_subset) != len(base_points):
-            print(f"Warning: DataFrame length ({len(df_subset)}) doesn't match base_points length ({len(base_points)}) for {breast_side} breast")
-            continue
-
-        # Compute clock positions from nipple-relative coordinates
-        angle_prone, angle_supine, distance_prone, distance_supine, angle_rotation, clock_rotation = \
-            compute_clock_positions(base_points, vectors)
-
-        # Add to dataframe
-        df_subset['angle_prone'] = angle_prone
-        df_subset['angle_supine'] = angle_supine
-        df_subset['distance_prone'] = distance_prone
-        df_subset['distance_supine'] = distance_supine
-        df_subset['angle_rotation'] = angle_rotation
-        df_subset['clock_rotation'] = clock_rotation
-
-        # Convert angles to clock hours for display
-        df_subset['clock_prone'] = ((angle_prone / 30.0) % 12)
-        df_subset['clock_supine'] = ((angle_supine / 30.0) % 12)
-
-        # Replace 0 with 12 for clock display
-        df_subset['clock_prone'] = df_subset['clock_prone'].replace(0, 12)
-        df_subset['clock_supine'] = df_subset['clock_supine'].replace(0, 12)
-
-        # Distance change
-        df_subset['distance_change'] = distance_supine - distance_prone
-
-        # Remove any NaN rows
-        df_clean = df_subset.dropna(subset=['angle_prone', 'angle_supine']).copy()
-
-        # Store processed dataframe
-        processed_dfs[breast_side] = df_clean
-
-    # Update df_left and df_right for subsequent steps
-    df_left = processed_dfs.get('Left', pd.DataFrame())
-    df_right = processed_dfs.get('Right', pd.DataFrame())
-
-
-    # --- PART 1: CLOCK FREQUENCY ANALYSIS (Count & Visualization) ---
-    print("\n" + "-"*80)
-    print("CLOCK POSITION FREQUENCY ANALYSIS")
-    print("-"*80)
-
-    # We will bin the clock data into half-hour intervals
-    # 12:00, 12:30, 1:00, 1:30, etc.
-    def round_to_half_hour(h):
-        if pd.isna(h):
-            return h
-        # Round to nearest 0.5
-        r = round(h * 2) / 2.0
-        # Handle 0 -> 12
-        if r == 0:
-            r = 12.0
-        elif r > 12:
-            r = r - 12
-        return r
-
-    def format_clock_time(h):
-        """Format decimal hours as clock time (e.g., 1.5 -> '1:30')"""
-        if pd.isna(h):
-            return "N/A"
-        whole = int(h)
-        frac = h - whole
-        if abs(frac - 0.5) < 0.01:
-            return f"{whole}:30"
-        else:
-            return f"{whole}:00"
-
-    for df_subset, breast_side in [(df_left, 'Left'), (df_right, 'Right')]:
-        if len(df_subset) == 0:
-            continue
-
-        print(f"\n{breast_side} Breast Frequency Distribution (Half-Hour Precision):")
-
-        # Round to half-hour intervals for frequency counting
-        hours_prone = df_subset['clock_prone'].apply(round_to_half_hour)
-        hours_supine = df_subset['clock_supine'].apply(round_to_half_hour)
-
-        # Create counts
-        counts_prone = hours_prone.value_counts().sort_index()
-        counts_supine = hours_supine.value_counts().sort_index()
-
-        # Ensure all half-hour intervals 1:00 to 12:30 exist
-        half_hour_bins = []
-        for h in range(1, 13):
-            half_hour_bins.append(float(h))
-            half_hour_bins.append(h + 0.5)
-
-        for hh in half_hour_bins:
-            if hh not in counts_prone.index:
-                counts_prone.loc[hh] = 0
-            if hh not in counts_supine.index:
-                counts_supine.loc[hh] = 0
-
-        counts_prone = counts_prone.sort_index()
-        counts_supine = counts_supine.sort_index()
-
-        # Print Table
-        print(f"{'Time':<8} | {'Prone N':<10} | {'Supine N':<10}")
-        print("-" * 35)
-        for hh in half_hour_bins:
-            time_str = format_clock_time(hh)
-            print(f"{time_str:<8} | {int(counts_prone.loc[hh]):<10} | {int(counts_supine.loc[hh]):<10}")
-
-        # --- ROSE PLOT (Histogram) with Half-Hour Intervals ---
-        fig, ax = plt.subplots(figsize=(10, 10), subplot_kw=dict(projection='polar'))
-        ax.set_theta_zero_location('N')
-        ax.set_theta_direction(-1)
-
-        # Setup bins for rose plot (centered on half-hour intervals)
-        # Create bins for all half-hour positions
-        theta_centers = []
-        widths = []
-        radii_prone_plot = []
-        radii_supine_plot = []
-
-        for hh in half_hour_bins:
-            # Convert clock hours to degrees: 12:00 -> 0°, 1:00 -> 30°, etc.
-            # Handle 12 specially (it's at 0°)
-            if hh >= 12:
-                deg = (hh - 12) * 30
-            else:
-                deg = hh * 30
-            theta_centers.append(np.radians(deg))
-            widths.append(np.radians(15))  # 15 degrees width for half-hour bins
-            radii_prone_plot.append(counts_prone.loc[hh])
-            radii_supine_plot.append(counts_supine.loc[hh])
-
-        # Plot Prone (Blue)
-        bars = ax.bar(theta_centers, radii_prone_plot, width=np.radians(15), bottom=0.0,
-                     color='blue', alpha=0.3, edgecolor='blue', linewidth=1, label='Prone')
-
-        # Plot Supine (Red)
-        bars2 = ax.bar(theta_centers, radii_supine_plot, width=np.radians(12), bottom=0.0,
-                      color='red', alpha=0.5, edgecolor='red', linewidth=1, label='Supine')
-
-        # Set tick labels for whole hours only (to avoid clutter)
-        ax.set_xticks(np.radians(np.arange(0, 360, 30)))
-        ax.set_xticklabels(['12', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11'])
-        ax.set_title(f'{breast_side} Breast: Clock Position Frequency (Half-Hour Bins)',
-                    pad=20, fontsize=14)
-        ax.legend(loc='upper right', bbox_to_anchor=(1.15, 1.1), fontsize=11)
-
-        # Save
-        filename = f"clock_frequency_{breast_side.lower()}_breast_half_hour.png"
-        save_path = save_dir / filename
-        plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        print(f"Saved frequency plot: {save_path}")
-        plt.show()
-        plt.close()
-
-    # --- PART 2: ROTATION & SHIFT ANALYSIS ---
-    # Statistical Analysis
-    print("\n" + "-"*80)
-    print("STATISTICAL SUMMARY (Rotation & Shift)")
-    print("-"*80)
-
-    for df_subset, breast_side in [(df_left, 'Left'), (df_right, 'Right')]:
-        if len(df_subset) == 0:
-            print(f"\n{breast_side} Breast: No data available")
-            continue
-
-        print(f"\n{breast_side} Breast (n={len(df_subset)}):")
-        print("-"*40)
-
-        # Clock rotation statistics
-        mean_rotation_deg = df_subset['angle_rotation'].mean()
-        std_rotation_deg = df_subset['angle_rotation'].std()
-        mean_rotation_hours = df_subset['clock_rotation'].mean()
-
-        print(f"Mean rotation: {mean_rotation_hours:.2f} hours ({mean_rotation_deg:.1f}°)")
-        print(f"Std rotation: {std_rotation_deg:.1f}°")
-        print(f"Median rotation: {df_subset['angle_rotation'].median():.1f}°")
-        print(f"Range: [{df_subset['angle_rotation'].min():.1f}°, {df_subset['angle_rotation'].max():.1f}°]")
-
-        # Test if rotation is significantly different from zero
-        t_stat, p_val = stats.ttest_1samp(df_subset['angle_rotation'], 0)
-        print(f"\nTest if rotation ≠ 0: t={t_stat:.3f}, p={p_val:.4e}")
-
-        if p_val < 0.05:
-            direction = "clockwise" if mean_rotation_deg > 0 else "counterclockwise"
-            print(f"✓ Significant {direction} rotation detected!")
-        else:
-            print("✗ No significant rotation detected")
-
-        # Distance change statistics
-        mean_dist_change = df_subset['distance_change'].mean()
-        print(f"\nMean distance change: {mean_dist_change:.2f} mm")
-        print(f"Mean prone distance: {df_subset['distance_prone'].mean():.2f} mm")
-        print(f"Mean supine distance: {df_subset['distance_supine'].mean():.2f} mm")
-
-        # Test if distance changes
-        t_stat_dist, p_val_dist = stats.ttest_rel(df_subset['distance_prone'],
-                                                   df_subset['distance_supine'])
-        print(f"Test if distance changed: t={t_stat_dist:.3f}, p={p_val_dist:.4e}")
-
-    # Create Polar Plots
-    print("\n" + "-"*80)
-    print("GENERATING POLAR PLOTS")
-    print("-"*80)
-
-    for df_subset, breast_side in [(df_left, 'Left'), (df_right, 'Right')]:
-        if len(df_subset) == 0:
-            continue
-
-        # Create polar plot
-        fig = plt.figure(figsize=(14, 6))
-
-        # Plot 1: Individual trajectories
-        ax1 = fig.add_subplot(121, projection='polar')
-        ax1.set_theta_zero_location('N')  # 0° at top (12 o'clock)
-        ax1.set_theta_direction(-1)  # Clockwise
-
-        # Convert angles to radians for plotting
-        theta_prone = np.radians(df_subset['angle_prone'].values)
-        theta_supine = np.radians(df_subset['angle_supine'].values)
-        r_prone = df_subset['distance_prone'].values
-        r_supine = df_subset['distance_supine'].values
-
-        # Plot trajectories
-        for i in range(len(df_subset)):
-            # Draw line from prone to supine
-            ax1.plot([theta_prone[i], theta_supine[i]],
-                    [r_prone[i], r_supine[i]],
-                    'gray', alpha=0.3, linewidth=1)
-
-        # Plot points
-        ax1.scatter(theta_prone, r_prone, c='blue', s=50, alpha=0.6,
-                   label='Prone', zorder=5, edgecolors='darkblue')
-        ax1.scatter(theta_supine, r_supine, c='red', s=50, alpha=0.6,
-                   label='Supine', zorder=5, edgecolors='darkred')
-
-        # Add clock hour labels
-        ax1.set_xticks(np.radians(np.arange(0, 360, 30)))
-        ax1.set_xticklabels(['12', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11'])
-
-        ax1.set_ylabel('Distance from Nipple (mm)', labelpad=30)
-        ax1.set_title(f'{breast_side} Breast: Prone→Supine Shift\n(Individual Landmarks)',
-                     fontsize=12, pad=20)
-        ax1.legend(loc='upper right', bbox_to_anchor=(1.3, 1.1))
-        ax1.grid(True, alpha=0.3)
-
-        # Plot 2: Mean shift with confidence
-        ax2 = fig.add_subplot(122, projection='polar')
-        ax2.set_theta_zero_location('N')
-        ax2.set_theta_direction(-1)
-
-        # Calculate mean positions using circular mean for angles
-        # CRITICAL: Must use circular mean for angles, not arithmetic mean!
-        # Example: mean of 350° and 10° is 0°, not 180°
-        theta_prone_rad = np.radians(df_subset['angle_prone'].values)
-        theta_supine_rad = np.radians(df_subset['angle_supine'].values)
-        mean_theta_prone = circular_mean_angle(theta_prone_rad)
-        mean_theta_supine = circular_mean_angle(theta_supine_rad)
-        mean_r_prone = df_subset['distance_prone'].mean()
-        mean_r_supine = df_subset['distance_supine'].mean()
-
-        # Plot individual points (lighter)
-        ax2.scatter(theta_prone, r_prone, c='lightblue', s=30, alpha=0.3, zorder=3)
-        ax2.scatter(theta_supine, r_supine, c='lightcoral', s=30, alpha=0.3, zorder=3)
-
-        # Plot mean trajectory
-        ax2.plot([mean_theta_prone, mean_theta_supine],
-                [mean_r_prone, mean_r_supine],
-                'black', linewidth=3, zorder=10)
-        ax2.annotate('',
-                    xy=(mean_theta_supine, mean_r_supine),  # Arrow head (end point)
-                    xytext=(mean_theta_prone, mean_r_prone),  # Arrow tail (start point)
-                    arrowprops=dict(arrowstyle='->', color='black', lw=2),
-                    zorder=10)
-
-        # Plot mean points
-        ax2.scatter([mean_theta_prone], [mean_r_prone], c='blue', s=200,
-                   marker='*', edgecolors='darkblue', linewidths=1,
-                   label='Mean Prone', zorder=11)
-        ax2.scatter([mean_theta_supine], [mean_r_supine], c='red', s=200,
-                   marker='*', edgecolors='darkred', linewidths=1,
-                   label='Mean Supine', zorder=11)
-
-        ax2.set_xticks(np.radians(np.arange(0, 360, 30)))
-        ax2.set_xticklabels(['12', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11'])
-        ax2.set_ylabel('Distance from Nipple (mm)', labelpad=30)
-
-        # Add rotation annotation
-        mean_rotation = df_subset['angle_rotation'].mean()
-        mean_rotation_hours = df_subset['clock_rotation'].mean()
-        direction = "Clockwise" if mean_rotation > 0 else "Counterclockwise"
-
-        title_text = f'{breast_side} Breast: Mean Rotation\n'
-        title_text += f'{direction}: {abs(mean_rotation_hours):.2f} hours ({abs(mean_rotation):.1f}°)'
-        ax2.set_title(title_text, fontsize=12, pad=20)
-        ax2.legend(loc='upper right', bbox_to_anchor=(1.3, 1.1))
-        ax2.grid(True, alpha=0.3)
-
-        plt.tight_layout()
-
-        # Save figure
-        filename = f"clock_rotation_{breast_side.lower()}_breast.png"
-        save_path = save_dir / filename
-        plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        print(f"Saved: {save_path}")
-        plt.show()
-        plt.close()
-
-    # Create combined comparison plot - Individual points
-    # Right breast on LEFT subplot, Left breast on RIGHT subplot
-    if len(df_left) > 0 and len(df_right) > 0:
-        print("\nGenerating combined polar plot with individual points...")
-        fig, (ax_left, ax_right) = plt.subplots(1, 2, figsize=(14, 6), subplot_kw=dict(projection='polar'))
-
-        # LEFT SUBPLOT: RIGHT BREAST
-        ax_left.set_theta_zero_location('N')
-        ax_left.set_theta_direction(-1)
-
-        theta_prone_r = np.radians(df_right['angle_prone'].values)
-        theta_supine_r = np.radians(df_right['angle_supine'].values)
-        r_prone_r = df_right['distance_prone'].values
-        r_supine_r = df_right['distance_supine'].values
-
-        # Plot all trajectories
-        for i in range(len(df_right)):
-            ax_left.plot([theta_prone_r[i], theta_supine_r[i]],
-                        [r_prone_r[i], r_supine_r[i]],
-                        'gray', alpha=0.3, linewidth=1)
-
-        # Plot individual points
-        ax_left.scatter(theta_prone_r, r_prone_r, c='lightblue', s=30, alpha=0.3, zorder=3)
-        ax_left.scatter(theta_supine_r, r_supine_r, c='lightcoral', s=30, alpha=0.3, zorder=3)
-
-        # Mean trajectory - use circular mean for angles
-        mean_theta_prone_r = circular_mean_angle(theta_prone_r)
-        mean_theta_supine_r = circular_mean_angle(theta_supine_r)
-        mean_r_prone_r = df_right['distance_prone'].mean()
-        mean_r_supine_r = df_right['distance_supine'].mean()
-
-        ax_left.plot([mean_theta_prone_r, mean_theta_supine_r],
-                    [mean_r_prone_r, mean_r_supine_r],
-                    'black', linewidth=2, zorder=10)
-        ax_left.annotate('',
-                        xy=(mean_theta_supine_r, mean_r_supine_r),
-                        xytext=(mean_theta_prone_r, mean_r_prone_r),
-                        arrowprops=dict(arrowstyle='->', color='black', lw=2),
-                        zorder=10)
-
-        # Plot mean points
-        ax_left.scatter([mean_theta_prone_r], [mean_r_prone_r], c='blue', s=200,
-                       marker='*', edgecolors='darkblue', linewidths=1,
-                       label='Mean Prone', zorder=11)
-        ax_left.scatter([mean_theta_supine_r], [mean_r_supine_r], c='red', s=200,
-                       marker='*', edgecolors='darkred', linewidths=1,
-                       label='Mean Supine', zorder=11)
-
-        ax_left.set_xticks(np.radians(np.arange(0, 360, 30)))
-        ax_left.set_xticklabels(['12', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11'])
-        ax_left.set_ylabel('Distance from Nipple (mm)', labelpad=30, fontsize=11)
-
-        mean_rotation_r = df_right['angle_rotation'].mean()
-        mean_rotation_hours_r = df_right['clock_rotation'].mean()
-        direction_r = "Clockwise" if mean_rotation_r > 0 else "Counterclockwise"
-
-        ax_left.set_title(
-            f'Landmarks in right breast\n{direction_r}: {abs(mean_rotation_hours_r):.2f}h ({abs(mean_rotation_r):.1f}°)',
-            fontsize=12, color='black', pad=20)
-        ax_left.legend(loc='upper right', bbox_to_anchor=(1.3, 1.1), fontsize=10, ncol=1)
-        ax_left.grid(True, alpha=0.3)
-
-        # RIGHT SUBPLOT: LEFT BREAST
-        ax_right.set_theta_zero_location('N')
-        ax_right.set_theta_direction(-1)
-
-        theta_prone_l = np.radians(df_left['angle_prone'].values)
-        theta_supine_l = np.radians(df_left['angle_supine'].values)
-        r_prone_l = df_left['distance_prone'].values
-        r_supine_l = df_left['distance_supine'].values
-
-        # Plot all trajectories
-        for i in range(len(df_left)):
-            ax_right.plot([theta_prone_l[i], theta_supine_l[i]],
-                         [r_prone_l[i], r_supine_l[i]],
-                         'gray', alpha=0.3, linewidth=1)
-
-        # Plot individual points
-        ax_right.scatter(theta_prone_l, r_prone_l, c='lightblue', s=30, alpha=0.3, zorder=3)
-        ax_right.scatter(theta_supine_l, r_supine_l, c='lightcoral', s=30, alpha=0.3, zorder=3)
-
-        # Mean trajectory - use circular mean for angles
-        mean_theta_prone_l = circular_mean_angle(theta_prone_l)
-        mean_theta_supine_l = circular_mean_angle(theta_supine_l)
-        mean_r_prone_l = df_left['distance_prone'].mean()
-        mean_r_supine_l = df_left['distance_supine'].mean()
-
-        ax_right.plot([mean_theta_prone_l, mean_theta_supine_l],
-                      [mean_r_prone_l, mean_r_supine_l],
-                      'black', linewidth=2, zorder=10)
-        ax_right.annotate('',
-                          xy=(mean_theta_supine_l, mean_r_supine_l),
-                          xytext=(mean_theta_prone_l, mean_r_prone_l),
-                          arrowprops=dict(arrowstyle='->', color='black', lw=2),
-                          zorder=10)
-        ax_right.scatter([mean_theta_prone_l], [mean_r_prone_l], c='blue', s=200,
-                         marker='*', edgecolors='darkblue', linewidths=1,
-                         label='Mean Prone', zorder=11)
-        ax_right.scatter([mean_theta_supine_l], [mean_r_supine_l], c='red', s=200,
-                         marker='*', edgecolors='darkred', linewidths=1,
-                         label='Mean Supine', zorder=11)
-
-        ax_right.set_xticks(np.radians(np.arange(0, 360, 30)))
-        ax_right.set_xticklabels(['12', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11'])
-        ax_right.set_ylabel('Distance from Nipple (mm)', labelpad=30, fontsize=11)
-
-        mean_rotation_l = df_left['angle_rotation'].mean()
-        mean_rotation_hours_l = df_left['clock_rotation'].mean()
-        direction_l = "Clockwise" if mean_rotation_l > 0 else "Counterclockwise"
-
-        ax_right.set_title(
-            f'Landmarks in left breast: \n{direction_l}: {abs(mean_rotation_hours_l):.2f}h ({abs(mean_rotation_l):.1f}°)',
-            fontsize=12, pad=20)
-        ax_right.legend(loc='upper right', bbox_to_anchor=(1.3, 1.1), fontsize=10, ncol=1)
-        ax_right.grid(True, alpha=0.3)
-
-        plt.tight_layout()
-
-        save_path = save_dir / "clock_rotation_comparison_individual.png"
-        plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        print(f"Saved comparison plot (individual): {save_path}")
-        plt.show()
-        plt.close()
-
-        # ========================================================================
-        # Create INDIVIDUAL LANDMARKS ONLY comparison plot (no mean overlay)
-        # Right breast on LEFT subplot, Left breast on RIGHT subplot
-        # ========================================================================
-        print("Generating combined polar plot with individual landmarks only (no mean)...")
-        fig_indiv, (ax_left_indiv, ax_right_indiv) = plt.subplots(1, 2, figsize=(14, 6),
-                                                                  subplot_kw=dict(projection='polar'))
-
-        # LEFT SUBPLOT: RIGHT BREAST INDIVIDUAL LANDMARKS ONLY
-        ax_left_indiv.set_theta_zero_location('N')
-        ax_left_indiv.set_theta_direction(-1)
-
-        # Plot all trajectories for right breast
-        for i in range(len(df_right)):
-            ax_left_indiv.plot([theta_prone_r[i], theta_supine_r[i]],
-                               [r_prone_r[i], r_supine_r[i]],
-                               'gray', alpha=0.3, linewidth=1)
-
-        # Plot individual points for right breast
-        ax_left_indiv.scatter(theta_prone_r, r_prone_r, c='blue', s=50, alpha=0.6,
-                              label='Prone', zorder=5, edgecolors='darkblue')
-        ax_left_indiv.scatter(theta_supine_r, r_supine_r, c='red', s=50, alpha=0.6,
-                              label='Supine', zorder=5, edgecolors='darkred')
-
-        ax_left_indiv.set_xticks(np.radians(np.arange(0, 360, 30)))
-        ax_left_indiv.set_xticklabels(['12', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11'])
-        ax_left_indiv.set_ylabel('Distance from Nipple (mm)', labelpad=30)
-        ax_left_indiv.set_title(f'Right Breast: Prone->Supine Shift\n(n={len(df_right)} landmarks)',
-                                fontsize=12, pad=20)
-        ax_left_indiv.legend(loc='upper right', bbox_to_anchor=(1.3, 1.1))
-        ax_left_indiv.grid(True, alpha=0.3)
-
-        # RIGHT SUBPLOT: LEFT BREAST INDIVIDUAL LANDMARKS ONLY
-        ax_right_indiv.set_theta_zero_location('N')
-        ax_right_indiv.set_theta_direction(-1)
-
-        # Plot all trajectories for left breast
-        for i in range(len(df_left)):
-            ax_right_indiv.plot([theta_prone_l[i], theta_supine_l[i]],
-                                [r_prone_l[i], r_supine_l[i]],
-                                'gray', alpha=0.3, linewidth=1)
-
-        # Plot individual points for left breast
-        ax_right_indiv.scatter(theta_prone_l, r_prone_l, c='blue', s=50, alpha=0.6,
-                               label='Prone', zorder=5, edgecolors='darkblue')
-        ax_right_indiv.scatter(theta_supine_l, r_supine_l, c='red', s=50, alpha=0.6,
-                               label='Supine', zorder=5, edgecolors='darkred')
-
-        ax_right_indiv.set_xticks(np.radians(np.arange(0, 360, 30)))
-        ax_right_indiv.set_xticklabels(['12', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11'])
-        ax_right_indiv.set_ylabel('Distance from Nipple (mm)', labelpad=30)
-        ax_right_indiv.set_title(f'Left Breast: Prone->Supine Shift\n(n={len(df_left)} landmarks)',
-                                 fontsize=12, pad=20)
-        ax_right_indiv.legend(loc='upper right', bbox_to_anchor=(1.3, 1.1))
-        ax_right_indiv.grid(True, alpha=0.3)
-
-        plt.tight_layout()
-
-        save_path_indiv = save_dir / "clock_rotation_individual_landmarks_only.png"
-        plt.savefig(save_path_indiv, dpi=300, bbox_inches='tight')
-        print(f"Saved comparison plot (individual landmarks only): {save_path_indiv}")
-        plt.show()
-        plt.close()
-
-    print("\n" + "="*80)
-    print("ANALYSIS COMPLETE")
-    print("="*80)
-
-    # Return summary statistics
-    summary = {}
-    if len(df_left) > 0:
-        summary['left'] = {
-            'n': len(df_left),
-            'mean_rotation_deg': df_left['angle_rotation'].mean(),
-            'mean_rotation_hours': df_left['clock_rotation'].mean(),
-            'std_rotation_deg': df_left['angle_rotation'].std(),
-            'p_value': stats.ttest_1samp(df_left['angle_rotation'], 0)[1],
-            'mean_distance_change': df_left['distance_change'].mean()
-        }
-
-    if len(df_right) > 0:
-        summary['right'] = {
-            'n': len(df_right),
-            'mean_rotation_deg': df_right['angle_rotation'].mean(),
-            'mean_rotation_hours': df_right['clock_rotation'].mean(),
-            'std_rotation_deg': df_right['angle_rotation'].std(),
-            'p_value': stats.ttest_1samp(df_right['angle_rotation'], 0)[1],
-            'mean_distance_change': df_right['distance_change'].mean()
-        }
-
-    return summary
-
+    # Import and call the fixed version from plot_polar_plots
+    from plot_polar_plots import analyse_clock_position_rotation as analyse_clock_rotation_fixed
+    return analyse_clock_rotation_fixed(df_ave, base_left, base_right, vec_left, vec_right, save_dir)
 
 
 def plot_3panel_anatomical_views(df_ave, save_path=None):
@@ -3131,7 +2676,7 @@ def plot_anatomical_correlation_matrix(df):
     plt.tight_layout()
 
     # Save figure
-    save_path = Path("..") / "output" / "figs" / "v5"  / "correlation_matrix_anatomical.png"
+    save_path = Path("..") / "output" / "figs" / "v6"  / "correlation_matrix_anatomical.png"
     save_path.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(save_path, dpi=300, bbox_inches='tight')
     print(f"\n[OK] Saved correlation matrix: {save_path}")
@@ -3211,6 +2756,24 @@ if __name__ == "__main__":
     print("\n--- Data Preview ---")
     print(df_subjects.head())
 
+    #%% Alignment error
+    ribcage_rmse = df_ave.groupby('VL_ID')['ribcage error rmse'].first()
+    print("\nRibcage alignment RMSE:")
+    print(ribcage_rmse.describe())
+    ribcage_inliner_rmse = df_ave.groupby('VL_ID')['ribcage inlier rmse'].first()
+    print("\nRibcage alignment inlier RMSE:")
+    print(ribcage_inliner_rmse.describe())
+
+    mask_skin_neighborhood_avg_prone = df_ave['Mask skin neighborhood avg (prone)']
+    mask_skin_neighborhood_avg_supine =  df_ave['Mask skin neighborhood avg (supine)']
+    mask_rib_neighborhood_avg_prone = df_ave['Mask rib neighborhood avg (prone)']
+    mask_rib_neighborhood_avg_supine =  df_ave['Mask rib neighborhood avg (supine)']
+    print("\nSkin mask precision:")
+    print(mask_skin_neighborhood_avg_prone.describe())
+    print(mask_skin_neighborhood_avg_supine.describe())
+    print("\nRib cage mask precision:")
+    print(mask_rib_neighborhood_avg_prone.describe())
+    print(mask_rib_neighborhood_avg_supine.describe())
 
     #%% landmarks characteristics
     landmark_type_raw = df_raw['Landmark type']
@@ -3542,6 +3105,10 @@ if __name__ == "__main__":
     pd.set_option('display.colheader_justify', 'center')
 
     # ===== TABLE 1: PRONE vs SUPINE COMPARISON =====
+    print("\n" + "=" * 80)
+    print("STATISTICAL COMPARISON: DTS, DTN, DTR (Prone vs Supine)")
+    print("=" * 80)
+
     distance_rows = []
 
     for short_name, excel_prefix in distance_metrics_map:
@@ -3562,8 +3129,48 @@ if __name__ == "__main__":
         supine_std = supine_data.std()
         supine_median = supine_data.median()
 
-        # Statistical test (paired t-test)
-        t_stat, p_value = stats.ttest_rel(prone_data, supine_data)
+        # Calculate differences for normality test
+        differences = supine_data.values - prone_data.values
+
+        # === NORMALITY TEST ===
+        print(f"\n{short_name} - Normality Test (Shapiro-Wilk on differences):")
+        shapiro_stat, shapiro_p = stats.shapiro(differences)
+        is_normal = shapiro_p > 0.05
+        print(f"  W = {shapiro_stat:.4f}, p = {shapiro_p:.4f} {'(Normal)' if is_normal else '(Non-normal)'}")
+
+        # === STATISTICAL TEST ===
+        # Use parametric test if normal, otherwise non-parametric
+        if is_normal:
+            # Paired t-test
+            t_stat, p_value = stats.ttest_rel(prone_data, supine_data)
+            test_used = "Paired t-test"
+            test_stat = t_stat
+            print(f"  Test: Paired t-test")
+            print(f"  t = {t_stat:.3f}, p = {p_value:.4e}")
+        else:
+            # Wilcoxon signed-rank test (non-parametric alternative)
+            wilcox_stat, p_value = stats.wilcoxon(prone_data, supine_data)
+            test_used = "Wilcoxon"
+            test_stat = wilcox_stat
+            print(f"  Test: Wilcoxon signed-rank test (non-parametric)")
+            print(f"  W = {wilcox_stat:.3f}, p = {p_value:.4e}")
+
+        # === EFFECT SIZE (Cohen's d for paired samples) ===
+        mean_diff = differences.mean()
+        sd_diff = differences.std()
+        cohens_d = mean_diff / sd_diff if sd_diff > 0 else 0
+
+        # Interpret effect size
+        if abs(cohens_d) < 0.2:
+            effect_interp = "negligible"
+        elif abs(cohens_d) < 0.5:
+            effect_interp = "small"
+        elif abs(cohens_d) < 0.8:
+            effect_interp = "medium"
+        else:
+            effect_interp = "large"
+
+        print(f"  Cohen's d = {cohens_d:.3f} ({effect_interp} effect)")
 
         # Significance marker
         if p_value < 0.001:
@@ -3581,8 +3188,11 @@ if __name__ == "__main__":
             "Prone Median": f"{prone_median:.2f}",
             "Supine Mean ± SD": f"{supine_mean:.2f} ± {supine_std:.2f}",
             "Supine Median": f"{supine_median:.2f}",
+            "Mean Diff": f"{mean_diff:.2f}",
+            "Test": test_used,
             "P-value": f"{p_value:.4e}",
-            "Sig.": sig_marker
+            "Sig.": sig_marker,
+            "Cohen's d": f"{cohens_d:.3f}"
         }
         distance_rows.append(distance_row)
 
@@ -3591,11 +3201,11 @@ if __name__ == "__main__":
     distance_table.set_index("Metric", inplace=True)
 
     print("\n" + "=" * 80)
-    print("STATISTICAL SUMMARY (Prone vs Supine Comparison)")
+    print("SUMMARY TABLE: Prone vs Supine Comparison")
     print("=" * 80)
     print(distance_table)
     print("\nSignificance levels: *** p<0.001, ** p<0.01, * p<0.05, ns = not significant")
-    print("P-values from paired t-test")
+    print("Mean Diff = Supine - Prone (positive values indicate increase in supine position)")
     print("=" * 80)
 
     # ===== DISTANCE CHANGE SUMMARY (Supine - Prone) =====
@@ -3733,6 +3343,10 @@ if __name__ == "__main__":
     print("=" * 80)
 
 
+    compare_distance_metrics(df_ave, position='prone')
+    compare_distance_metrics(df_ave, position='supine')
+
+
     #%% repeated anova for difference in distance to skin, rib cage, and nipples
     SUBJECT_ID = 'VL_ID'
     perform_repeated_measures_analysis(df_ave, SUBJECT_ID, dv_differences)
@@ -3836,7 +3450,7 @@ if __name__ == "__main__":
     print("=" * 50)
 
     # Define save directory
-    save_path = Path("..") / "output" /  "figs" / "v5" / "landmark vectors" / "Vectors_rel_nipple"
+    save_path = Path("..") / "output" /  "figs" / "v6" / "landmark vectors" / "Vectors_rel_nipple"
 
     base_left, base_right, vec_left, vec_right, lm_disp_left, lm_disp_right, nipple_disp_left, nipple_disp_right =\
         plot_nipple_relative_landmarks(
@@ -3900,7 +3514,7 @@ if __name__ == "__main__":
 
     print("\n" + "=" * 80)
 
-    save_path = Path("..") / "output" /  "figs"  / "v5"
+    save_path = Path("..") / "output" /  "figs"  / "v6"
     # plot_3panel_anatomical_views(df_ave, save_path)
 
     # Correlation matrix analysis

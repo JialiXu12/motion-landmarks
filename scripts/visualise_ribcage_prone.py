@@ -16,7 +16,7 @@ Mesh path logic
 ---------------
 Source primary : U:\\sandbox\\fpan017\\meshes\\new_workflow\\ribcage\\new_cases\\{VL_ID_STR}\\ribcage.mesh
 Source fallback: U:\\sandbox\\fpan017\\meshes\\new_workflow\\ribcage\\updated\\{VL_ID_STR}\\ribcage.mesh
-Copied         : U:\\sandbox\\jxu759\\volunteer_prone_mesh\\{VL_ID_STR}_ribcage_prone.mesh
+Local          : U:\\sandbox\\jxu759\\volunteer_prone_mesh\\{VL_ID_STR}_ribcage_prone.mesh
 
 Point cloud
 -----------
@@ -25,11 +25,9 @@ Created from the prone ribcage segmentation:
 
 Mesh copy utility
 -----------------
-Call copy_and_rename_meshes() to batch-copy ribcage.mesh files from the
-source tree into a flat destination folder as VL00009_ribcage_prone.mesh etc.
+Use scripts/rename_mesh.py to copy and rename meshes into the copied folder.
 """
 
-import shutil
 from pathlib import Path
 
 import breast_metadata
@@ -43,13 +41,15 @@ from alignment_utils import get_surface_mesh_coords
 # Path configuration
 # ---------------------------------------------------------------------------
 
-MESH_PRIMARY_ROOT   = Path(r"U:\sandbox\fpan017\meshes\new_workflow\ribcage\new_cases")
-MESH_FALLBACK_ROOT  = Path(r"U:\sandbox\fpan017\meshes\new_workflow\ribcage\updated")
-MESH_COPIED_ROOT    = Path(r"U:\sandbox\jxu759\volunteer_prone_mesh")
-SEG_ROOT            = Path(r"U:\sandbox\jxu759\volunteer_seg\results\prone\rib_cage")
+MESH_PRIMARY_ROOT   = Path(r"U:\sandbox\fpan017\meshes\new_workflow\ribcage\updated")
+# MESH_PRIMARY_ROOT   = Path(r"U:\sandbox\fpan017\meshes\new_workflow\ribcage\iter2")
+# MESH_PRIMARY_ROOT   = Path(r"U:\sandbox\fpan017\meshes\new_workflow\ribcage\new_cases")
 
-# Destination used by the copy utility
-MESH_DEST_DIR       = Path(r"U:\sandbox\jxu759\volunteer_prone_mesh")
+
+MESH_FALLBACK_ROOT  = Path(r"U:\sandbox\fpan017\meshes\new_workflow\ribcage\new_cases")
+MESH_LOCAL_ROOT    = Path(r"U:\sandbox\jxu759\volunteer_prone_mesh\v0")
+# MESH_LOCAL_ROOT    = Path(r"U:\sandbox\fpan017\meshes\new_workflow\ribcage\new_cases_backup")
+SEG_ROOT            = Path(r"U:\sandbox\jxu759\volunteer_seg\results\prone\rib_cage")
 
 # Number of surface points to sample from the segmentation
 NB_POINTS = 20000
@@ -82,7 +82,7 @@ def get_mesh_path(vl_id_str: str) -> Path:
 
 def get_copied_mesh_path(vl_id_str: str) -> Path:
     """Return path to the pre-copied, renamed mesh in the volunteer_prone_mesh folder."""
-    path = MESH_COPIED_ROOT / f"{vl_id_str}_ribcage_prone.mesh"
+    path = MESH_LOCAL_ROOT / f"{vl_id_str}_ribcage_prone.mesh"
     if not path.exists():
         raise FileNotFoundError(
             f"Copied mesh not found for {vl_id_str}.\n"
@@ -173,10 +173,10 @@ def plot_ribcage_comparison(
 
     # ---- Right subplot: copied mesh ---------------------------------------
     plotter.subplot(0, 1)
-    plotter.add_text(f"{vl_id_str}  |  copied mesh (volunteer_prone_mesh)",
+    plotter.add_text(f"{vl_id_str}  |  v0 mesh (volunteer_prone_mesh)",
                      position="upper_left", font_size=9, color="black")
-    print("  [Right] adding copied mesh...")
-    _add_mesh(plotter, copied_mesh, label="Copied mesh", color="#CCFFCC")
+    print("  [Right] adding v0 mesh...")
+    _add_mesh(plotter, copied_mesh, label="v0 mesh", color="#CCFFCC")
     plotter.add_points(point_cloud, color="steelblue", point_size=2,
                        render_points_as_spheres=True, label="Seg point cloud")
     plotter.add_axes(**axes_labels)
@@ -185,56 +185,6 @@ def plot_ribcage_comparison(
     plotter.link_views()   # sync camera between subplots
     plotter.show()
 
-
-# ---------------------------------------------------------------------------
-# Mesh copy utility  (disabled — call manually when needed)
-# ---------------------------------------------------------------------------
-
-def copy_and_rename_meshes(
-    dest_dir: Path = MESH_DEST_DIR,
-    primary_root: Path = MESH_PRIMARY_ROOT,
-    fallback_root: Path = MESH_FALLBACK_ROOT,
-) -> None:
-    """
-    Walk both source roots and copy every ribcage.mesh to *dest_dir*,
-    renaming each file to  <VL_ID_STR>_ribcage_prone.mesh.
-
-    Primary root is tried first; if a subject folder exists in both roots the
-    primary copy wins (already-copied files are not overwritten).
-    """
-    dest_dir.mkdir(parents=True, exist_ok=True)
-    copied = 0
-    skipped = 0
-
-    for root in (primary_root, fallback_root):
-        if not root.is_dir():
-            print(f"  WARNING: Source directory not found, skipping: {root}")
-            continue
-
-        for subject_dir in sorted(root.iterdir()):
-            if not subject_dir.is_dir():
-                continue
-
-            subject_id    = subject_dir.name           # e.g. "VL00009"
-            source_file   = subject_dir / "ribcage.mesh"
-            dest_file     = dest_dir / f"{subject_id}_ribcage_prone.mesh"
-
-            if not source_file.exists():
-                continue
-
-            if dest_file.exists():
-                print(f"  [SKIP]   {dest_file.name}  (already exists)")
-                skipped += 1
-                continue
-
-            try:
-                shutil.copy2(source_file, dest_file)
-                print(f"  [COPIED] {source_file}  ->  {dest_file.name}")
-                copied += 1
-            except Exception as exc:
-                print(f"  [ERROR]  Could not copy {source_file}: {exc}")
-
-    print(f"\nFinished copying meshes: {copied} copied, {skipped} skipped.")
 
 
 # ---------------------------------------------------------------------------
@@ -253,6 +203,6 @@ def main(vl_id: int) -> None:
 
 
 if __name__ == "__main__":
-    VL_ID = [32,34,35,36,37,38,39,40,41,42,44,45,46,47,48,49,50]
+    VL_ID = [20]
     for id in VL_ID:# change to the subject you want to inspect
         main(id)

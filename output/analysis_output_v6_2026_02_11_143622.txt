@@ -1,0 +1,909 @@
+Analysis started: 2026-02-11 14:36:22
+Output will be saved to: ..\output\analysis_output_v6_2026_02_11_143622.txt
+================================================================================
+Successfully loaded 3 sheets.
+   Registrar Registrar_name  VL_ID  ...           x          y          z
+0          1        anthony      9  ... -129.135058  17.089070 -23.051826
+1          1        anthony      9  ...   83.845016 -14.541644 -70.751824
+2          1        anthony      9  ...  121.559646  48.610686 -14.051826
+3          1        anthony      9  ...  126.041470  57.126153 -14.051826
+4          1        anthony      9  ... -153.169205   4.307810   2.974062
+
+[5 rows x 9 columns]
+   VL_ID  ...  Mask rib neighborhood avg (supine)
+0      9  ...                            1.588158
+1      9  ...                            1.588158
+2      9  ...                            1.588158
+3     11  ...                            1.495613
+4     11  ...                            1.495613
+
+[5 rows x 67 columns]
+Number of unique subjects: 63
+
+Analysis Summary:
+             Age        BMI
+count  63.000000  63.000000
+mean   42.492063  24.391972
+std    14.616466   3.808022
+min    20.000000  17.993080
+25%    29.000000  21.664728
+50%    43.000000  23.422091
+75%    54.000000  26.743177
+max    75.000000  35.651338
+--- Age Group Distribution ---
+Age_Group
+18-24     8
+25-44    24
+45-64    28
+65+       3
+Name: count, dtype: int64
+
+--- BMI Group Distribution ---
+BMI_Group
+Underweight/Normal    41
+Overweight            15
+Obese                  7
+Name: count, dtype: int64
+
+--- Data Preview ---
+    VL_ID  Age        BMI Age_Group           BMI_Group
+0       9   41  29.757585     25-44          Overweight
+3      11   29  20.428357     25-44  Underweight/Normal
+6      12   41  23.422091     25-44  Underweight/Normal
+9      14   20  22.491349     18-24  Underweight/Normal
+11     15   42  23.814967     25-44  Underweight/Normal
+
+Ribcage alignment RMSE:
+count    63.000000
+mean     10.817360
+std       4.589468
+min       4.876737
+25%       7.333340
+50%       9.455516
+75%      13.804943
+max      25.896969
+Name: ribcage error rmse, dtype: float64
+
+Skin mask precision:
+count    156.000000
+mean       2.269118
+std        0.252248
+min        1.861442
+25%        2.106960
+50%        2.216520
+75%        2.362842
+max        3.309402
+Name: Mask skin neighborhood avg (prone), dtype: float64
+count    156.000000
+mean       2.210463
+std        0.172746
+min        1.908312
+25%        2.097257
+50%        2.172651
+75%        2.289644
+max        2.908794
+Name: Mask skin neighborhood avg (supine), dtype: float64
+
+Rib cage mask precision:
+count    156.000000
+mean       1.590140
+std        0.065935
+min        1.365414
+25%        1.588158
+50%        1.588158
+75%        1.619439
+max        2.041598
+Name: Mask rib neighborhood avg (prone), dtype: float64
+count    156.000000
+mean       1.559007
+std        0.097420
+min        1.298979
+25%        1.527525
+50%        1.588158
+75%        1.588158
+max        2.110859
+Name: Mask rib neighborhood avg (supine), dtype: float64
+Total number of landmarks is:  156
+Number of landmarks per volunteer:
+ VL_ID
+9     3
+11    3
+12    3
+14    2
+15    3
+     ..
+85    4
+86    4
+87    3
+88    3
+89    1
+Length: 63, dtype: int64
+Total number of volunteers is:  63
+--- Landmark Type Distribution Summary Table ---
+  Landmark type    N  Percentage (%)
+0         lymph   71            45.5
+1          cyst   51            32.7
+2         other   34            21.8
+3         Total  156           100.0
+
+--- DISTRIBUTION BY SIDE ---
+landmark side (prone)
+LB    79
+RB    77
+Name: count, dtype: int64
+
+--- DISTRIBUTION BY QUADRANT ---
+         Prone  Supine
+UO          93      56
+LO          34      25
+UI          18      39
+central      8      12
+LI           3      24
+
+==================================================
+QUADRANT MIGRATION TABLE (Counts with Totals)
+==================================================
+Quadrant (supine)  UO  UI  LO  LI  central  Total
+Quadrant (prone)                                 
+UO                 55  23   3   5        7     93
+UI                  0  13   0   5        0     18
+LO                  1   0  22   7        4     34
+LI                  0   0   0   3        0      3
+central             0   3   0   4        1      8
+Total              56  39  25  24       12    156
+
+==================================================
+MIGRATION PROBABILITIES (Row Percentages)
+Interpretation: % of landmarks starting in [Row] that moved to [Column]
+==================================================
+                      UO          UI  ...    central Total Prone
+UO            55 (59.1%)  23 (24.7%)  ...   7 (7.5%)   93 (100%)
+UI              0 (0.0%)  13 (72.2%)  ...   0 (0.0%)   18 (100%)
+LO              1 (2.9%)    0 (0.0%)  ...  4 (11.8%)   34 (100%)
+LI              0 (0.0%)    0 (0.0%)  ...   0 (0.0%)    3 (100%)
+central         0 (0.0%)   3 (37.5%)  ...  1 (12.5%)    8 (100%)
+Total Supine  56 (35.9%)  39 (25.0%)  ...  12 (7.7%)  156 (100%)
+
+[6 rows x 6 columns]
+
+==================================================
+QUADRANT CHANGES BY LANDMARK TYPE
+==================================================
+
+Landmark Quadrant Changes Summary by Type:
+               Total  Changed  Unchanged  % Changed
+Landmark type                                      
+cyst            51.0     22.0       29.0       43.1
+lymph           71.0     25.0       46.0       35.2
+other           34.0     15.0       19.0       44.1
+Total          156.0     62.0       94.0       39.7
+
+==================================================
+SPECIFIC QUADRANT TRANSITIONS (ONLY CHANGED LANDMARKS)
+==================================================
+
+*** OVERALL TRANSITIONS (62 landmarks changed quadrants) ***
+
+Transition Matrix (FROM prone rows -> TO supine columns):
+Quadrant (supine)  UO  UI  LO  LI  central
+Quadrant (prone)                          
+UO                  0  23   3   5        7
+UI                  0   0   0   5        0
+LO                  1   0   0   7        4
+LI                  0   0   0   0        0
+central             0   3   0   4        0
+
+Detailed Transition Counts:
+   From      To  Count Percentage
+     UO      UI     23      37.1%
+     UO central      7      11.3%
+     LO      LI      7      11.3%
+     UO      LI      5       8.1%
+     UI      LI      5       8.1%
+     LO central      4       6.5%
+central      LI      4       6.5%
+     UO      LO      3       4.8%
+central      UI      3       4.8%
+     LO      UO      1       1.6%
+
+==================================================
+QUADRANT TRANSITIONS BY LANDMARK TYPE
+==================================================
+
+==================================================
+cyst: 22/51 (43.1%) changed quadrants
+==================================================
+
+Transition Matrix (FROM prone rows -> TO supine columns):
+Quadrant (supine)  UO  UI  LO  LI  central
+Quadrant (prone)                          
+UO                  0   6   1   1        5
+UI                  0   0   0   0        0
+LO                  0   0   0   4        0
+LI                  0   0   0   0        0
+central             0   2   0   3        0
+
+Specific Transitions:
+   From      To  Count % of Changed % of Total
+     UO      UI      6        27.3%      11.8%
+     UO central      5        22.7%       9.8%
+     LO      LI      4        18.2%       7.8%
+central      LI      3        13.6%       5.9%
+central      UI      2         9.1%       3.9%
+     UO      LO      1         4.5%       2.0%
+     UO      LI      1         4.5%       2.0%
+
+==================================================
+lymph: 25/71 (35.2%) changed quadrants
+==================================================
+
+Transition Matrix (FROM prone rows -> TO supine columns):
+Quadrant (supine)  UO  UI  LO  LI  central
+Quadrant (prone)                          
+UO                  0  15   2   2        2
+UI                  0   0   0   0        0
+LO                  1   0   0   2        1
+LI                  0   0   0   0        0
+central             0   0   0   0        0
+
+Specific Transitions:
+From      To  Count % of Changed % of Total
+  UO      UI     15        60.0%      21.1%
+  UO      LO      2         8.0%       2.8%
+  UO      LI      2         8.0%       2.8%
+  UO central      2         8.0%       2.8%
+  LO      LI      2         8.0%       2.8%
+  LO      UO      1         4.0%       1.4%
+  LO central      1         4.0%       1.4%
+
+==================================================
+other: 15/34 (44.1%) changed quadrants
+==================================================
+
+Transition Matrix (FROM prone rows -> TO supine columns):
+Quadrant (supine)  UO  UI  LO  LI  central
+Quadrant (prone)                          
+UO                  0   2   0   2        0
+UI                  0   0   0   5        0
+LO                  0   0   0   1        3
+LI                  0   0   0   0        0
+central             0   1   0   1        0
+
+Specific Transitions:
+   From      To  Count % of Changed % of Total
+     UI      LI      5        33.3%      14.7%
+     LO central      3        20.0%       8.8%
+     UO      UI      2        13.3%       5.9%
+     UO      LI      2        13.3%       5.9%
+     LO      LI      1         6.7%       2.9%
+central      UI      1         6.7%       2.9%
+central      LI      1         6.7%       2.9%
+
+================================================================================
+STATISTICAL COMPARISON: DTS, DTN, DTR (Prone vs Supine)
+================================================================================
+
+DTS (Skin) - Normality Test (Shapiro-Wilk on differences):
+  W = 0.9301, p = 0.0000 (Non-normal)
+  Test: Wilcoxon signed-rank test (non-parametric)
+  W = 5961.000, p = 7.7439e-01
+  Cohen's d = 0.050 (negligible effect)
+
+DTN (Nipple) - Normality Test (Shapiro-Wilk on differences):
+  W = 0.9622, p = 0.0003 (Non-normal)
+  Test: Wilcoxon signed-rank test (non-parametric)
+  W = 252.000, p = 2.8108e-25
+  Cohen's d = -1.241 (large effect)
+
+DTR (Rib Cage) - Normality Test (Shapiro-Wilk on differences):
+  W = 0.9085, p = 0.0000 (Non-normal)
+  Test: Wilcoxon signed-rank test (non-parametric)
+  W = 810.000, p = 5.4191e-21
+  Cohen's d = -0.935 (large effect)
+
+================================================================================
+SUMMARY TABLE: Prone vs Supine Comparison
+================================================================================
+               Prone Mean ± SD Prone Median Supine Mean ± SD Supine Median Mean Diff    Test     P-value   Sig. Cohen's d
+Metric                                                                                                                   
+DTS (Skin)       26.49 ± 14.15     24.23      26.86 ± 14.46       25.08        0.37   Wilcoxon  7.7439e-01   ns    0.050 
+DTN (Nipple)     93.83 ± 41.62     97.10      77.66 ± 33.09       78.98      -16.18   Wilcoxon  2.8108e-25  ***   -1.241 
+DTR (Rib Cage)   38.63 ± 30.24     26.59      20.91 ± 13.64       16.97      -17.73   Wilcoxon  5.4191e-21  ***   -0.935 
+
+Significance levels: *** p<0.001, ** p<0.01, * p<0.05, ns = not significant
+Mean Diff = Supine - Prone (positive values indicate increase in supine position)
+================================================================================
+
+================================================================================
+DISTANCE CHANGE SUMMARY (Supine - Prone)
+================================================================================
+               Mean [mm] SD [mm] Median [mm] Min [mm] Max [mm] Range [mm]
+Metric                                                                   
+DTS (Skin)         0.37     7.33     -0.40    -20.82    34.38     55.20  
+DTN (Nipple)     -16.18    13.08    -13.96    -51.06     6.42     57.48  
+DTR (Rib Cage)   -17.73    19.01    -10.82    -65.09     9.47     74.56  
+
+Positive values indicate further distance in supine position
+================================================================================
+
+================================================================================
+DISPLACEMENT MAGNITUDE SUMMARY (Relative to Sternum)
+================================================================================
+
+Landmark Displacement (Sternum Reference):
+  N = 156
+  Mean ± SD:    69.99 ± 28.66 mm
+  Median:       64.77 mm
+  Range:        11.01 - 165.83 mm (Range: 154.82 mm)
+
+  By Breast Side:
+    Left Breast (n=79):  68.59 ± 29.47 mm
+    Right Breast (n=77): 71.42 ± 27.91 mm
+    Difference: t=-0.616, p=5.3885e-01 (ns)
+
+Landmark Displacement (Nipple Reference):
+  N = 156
+  Mean ± SD:    37.54 ± 21.55 mm
+  Median:       34.20 mm
+  Range:        2.72 - 124.51 mm
+
+  By Breast Side:
+    Left Breast (n=79):  39.62 ± 23.01 mm
+    Right Breast (n=77): 35.40 ± 19.87 mm
+
+Nipple Displacement (Sternum Reference):
+  Left Nipple (n=63):  100.77 ± 33.08 mm
+  Right Nipple (n=63): 96.00 ± 31.97 mm
+  Combined (n=126): 98.38 ± 32.49 mm
+================================================================================
+
+========================================================================================================================
+STATISTICAL COMPARISON: DTS vs DTN vs DTR (PRONE Position)
+========================================================================================================================
+
+Research Question: Are DTS, DTN, DTR significantly different from each other in prone position?
+========================================================================================================================
+
+Sample size (paired): N = 156
+
+Descriptive Statistics (Prone):
+  DTS (Skin):     26.49 ± 14.11 mm
+  DTN (Nipple):   93.83 ± 41.48 mm
+  DTR (Rib Cage): 38.63 ± 30.15 mm
+
+Normality Tests (Shapiro-Wilk):
+  DTS: p = 0.0000 (Non-normal)
+  DTN: p = 0.0000 (Non-normal)
+  DTR: p = 0.0000 (Non-normal)
+
+→ Using Friedman Test (non-parametric, data not normally distributed)
+
+Friedman Test Results:
+  χ²(2) = 139.885
+  p-value = 4.2115e-31
+  ✓ Significant difference detected (p < 0.05)
+
+Post-hoc Pairwise Comparisons (Wilcoxon with Bonferroni correction):
+  DTS vs DTN          : p = 7.1327e-27 (***)
+  DTS vs DTR          : p = 3.6793e-03 (**)
+  DTN vs DTR          : p = 6.4623e-15 (***)
+
+========================================================================================================================
+
+========================================================================================================================
+STATISTICAL COMPARISON: DTS vs DTN vs DTR (SUPINE Position)
+========================================================================================================================
+
+Research Question: Are DTS, DTN, DTR significantly different from each other in supine position?
+========================================================================================================================
+
+Sample size (paired): N = 156
+
+Descriptive Statistics (Supine):
+  DTS (Skin):     26.86 ± 14.41 mm
+  DTN (Nipple):   77.66 ± 32.98 mm
+  DTR (Rib Cage): 20.91 ± 13.60 mm
+
+Normality Tests (Shapiro-Wilk):
+  DTS: p = 0.0000 (Non-normal)
+  DTN: p = 0.0000 (Non-normal)
+  DTR: p = 0.0000 (Non-normal)
+
+→ Using Friedman Test (non-parametric, data not normally distributed)
+
+Friedman Test Results:
+  χ²(2) = 192.090
+  p-value = 1.9420e-42
+  ✓ Significant difference detected (p < 0.05)
+
+Post-hoc Pairwise Comparisons (Wilcoxon with Bonferroni correction):
+  DTS vs DTN          : p = 7.1327e-27 (***)
+  DTS vs DTR          : p = 1.7245e-03 (**)
+  DTN vs DTR          : p = 1.2440e-24 (***)
+
+========================================================================================================================
+
+================================================================================
+REPEATED MEASURES ANALYSIS: Comparing Multiple Dependent Shifts
+================================================================================
+Total N for Analysis: 63 landmarks.
+
+================================================================================
+REPEATED MEASURES ANOVA RESULTS
+================================================================================
+                 F-statistic   P-value   Sig.
+Source                                       
+Measurement Type    36.239    4.0438e-13  ***
+
+Significance levels: *** p<0.001, ** p<0.01, * p<0.05, ns = not significant
+η² = partial eta squared (effect size)
+
+RM-ANOVA is significant. Running Post-hoc Paired T-tests (Bonferroni corrected).
+Comparison A Comparison B Mean A [mm] Mean B [mm] Mean Diff [mm] t-statistic  df  P-value (uncorrected) P-value (Bonferroni) Hedges' g Sig.
+  DTN Nipple DTR Rib Cage    -16.18      -17.73         1.55        -0.669   62.0       5.0572e-01           1.0000e+00        -0.138   ns 
+  DTN Nipple     DTS Skin    -16.18        0.37       -16.54       -10.216   62.0       6.4962e-15           1.9489e-14        -1.903  *** 
+DTR Rib Cage     DTS Skin    -17.73        0.37       -18.09        -7.555   62.0       2.3431e-10           7.0292e-10        -1.319  *** 
+
+Mean Diff = Mean A - Mean B
+Significance based on Bonferroni-corrected p-values
+
+================================================================================
+
+================================================================================
+GROUP ANALYSIS (Signed Difference: Supine - Prone)
+================================================================================
+
+
+*** Group Analysis for Dependent Variable: diff_DTS_Skin ***
+
+======================================================================
+ANALYSIS: diff_DTS_Skin grouped by quadrant_prone
+======================================================================
+
+## 1. Assumption Check: Normality (Shapiro-Wilk)
+  - Group 'LI' (N=3): p=0.0351 (NON-NORMAL)
+  - Group 'LO' (N=34): p=0.0088 (NON-NORMAL)
+  - Group 'UI' (N=18): p=0.0508 (Normal)
+  - Group 'UO' (N=93): p=0.0048 (NON-NORMAL)
+  - Group 'central' (N=8): p=0.6197 (Normal)
+
+## 2. Assumption Check: Homogeneity of Variances (Levene's Test)
+  - Levene's Test (Brown-Forsythe): F=4.4916, p=0.0019 (UNEQUAL (p < 0.05))
+
+## 3. Inferential Testing
+
+--- Running Welch's ANOVA (Unequal Variances) ---
+  - Result: F=5.3535, p=0.0076
+  - POST-HOC: Games-Howell (for unequal variances)
+   A     B       mean(A)   mean(B)    diff      pval     hedges 
+0  LI       LO  3.373124 -0.576374  3.949498  0.216110  0.966649
+1  LI       UI  3.373124 -2.954903  6.328027  0.049318  1.535036
+2  LI       UO  3.373124  1.530648  1.842476  0.751279  0.212864
+3  LI  central  3.373124 -2.831934  6.205057  0.062149  1.676668
+4  LO       UI -0.576374 -2.954903  2.378530  0.293497  0.572047
+5  LO       UO -0.576374  1.530648 -2.107021  0.351082 -0.270899
+6  LO  central -0.576374 -2.831934  2.255560  0.563474  0.551522
+7  UI       UO -2.954903  1.530648 -4.485551  0.011290 -0.547735
+8  UI  central -2.954903 -2.831934 -0.122970  0.999991 -0.029839
+9  UO  central  1.530648 -2.831934  4.362581  0.089408  0.514324
+
+--- Running Kruskal-Wallis H Test (Non-parametric Alternative) ---
+  - Result: H=12.4289, p=0.0144
+  - Significant difference found. Use Dunn's Test with Bonferroni correction for post-hoc.
+
+======================================================================
+STATISTICAL SUMMARY for quadrant_prone
+                count    mean       std     median 
+quadrant_prone                                     
+LI                3    3.373124  2.141554  2.176231
+LO               34   -0.576374  4.083039 -0.526633
+UI               18   -2.954903  4.118836 -1.948932
+UO               93    1.530648  8.673493  0.800964
+central           8   -2.831934  3.661908 -2.255313
+======================================================================
+
+======================================================================
+ANALYSIS: diff_DTS_Skin grouped by landmark_type
+======================================================================
+
+## 1. Assumption Check: Normality (Shapiro-Wilk)
+  - Group 'cyst' (N=51): p=0.7442 (Normal)
+  - Group 'lymph' (N=71): p=0.0060 (NON-NORMAL)
+  - Group 'other' (N=34): p=0.0119 (NON-NORMAL)
+
+## 2. Assumption Check: Homogeneity of Variances (Levene's Test)
+  - Levene's Test (Brown-Forsythe): F=6.2100, p=0.0026 (UNEQUAL (p < 0.05))
+
+## 3. Inferential Testing
+
+--- Running Welch's ANOVA (Unequal Variances) ---
+  - Result: F=3.6749, p=0.0289
+  - POST-HOC: Games-Howell (for unequal variances)
+    A      B      mean(A)   mean(B)    diff      pval     hedges 
+0   cyst  lymph -1.487579  2.100898 -3.588476  0.020705 -0.457021
+1   cyst  other -1.487579 -0.478472 -1.009106  0.605420 -0.200898
+2  lymph  other  2.100898 -0.478472  2.579370  0.125661  0.323209
+
+--- Running Kruskal-Wallis H Test (Non-parametric Alternative) ---
+  - Result: H=7.3534, p=0.0253
+  - Significant difference found. Use Dunn's Test with Bonferroni correction for post-hoc.
+
+======================================================================
+STATISTICAL SUMMARY for landmark_type
+               count    mean       std     median 
+landmark_type                                     
+cyst            51   -1.487579  5.383039 -0.894144
+lymph           71    2.100898  9.147212  0.809037
+other           34   -0.478472  4.290465 -1.259707
+======================================================================
+
+======================================================================
+TWO-GROUP ANALYSIS: diff_DTS_Skin grouped by landmark_side_prone
+======================================================================
+
+## 1. Assumption Check: Normality (Shapiro-Wilk)
+  - Group 'LB' (N=79): p=0.0089 (Non-Normal)
+  - Group 'RB' (N=77): p=0.0000 (Non-Normal)
+
+## 2. Assumption Check: Homogeneity of Variances (Levene's Test)
+  - Levene's Test: F=1.9694, p=0.1625 (ASSUMED EQUAL (p >= 0.05))
+
+## 3. Inferential Testing
+
+--- Running Mann-Whitney U test (Non-parametric) ---
+  - Test: Mann-Whitney U
+  - Result: U=3338.0000, p=0.2941 (Not Significant)
+
+======================================================================
+STATISTICAL SUMMARY for landmark_side_prone
+                     count    mean       std     median 
+landmark_side_prone                                     
+LB                    79    1.040909  7.847335  0.202911
+RB                    77   -0.327307  6.737765 -0.452969
+======================================================================
+
+
+*** Group Analysis for Dependent Variable: diff_DTN_Nipple ***
+
+======================================================================
+ANALYSIS: diff_DTN_Nipple grouped by quadrant_prone
+======================================================================
+
+## 1. Assumption Check: Normality (Shapiro-Wilk)
+  - Group 'LI' (N=3): p=0.6866 (Normal)
+  - Group 'LO' (N=34): p=0.0977 (Normal)
+  - Group 'UI' (N=18): p=0.2869 (Normal)
+  - Group 'UO' (N=93): p=0.0465 (NON-NORMAL)
+  - Group 'central' (N=8): p=0.0760 (Normal)
+
+## 2. Assumption Check: Homogeneity of Variances (Levene's Test)
+  - Levene's Test (Brown-Forsythe): F=4.8505, p=0.0010 (UNEQUAL (p < 0.05))
+
+## 3. Inferential Testing
+
+--- Running Welch's ANOVA (Unequal Variances) ---
+  - Result: F=13.5173, p=0.0000
+  - POST-HOC: Games-Howell (for unequal variances)
+   A     B       mean(A)    mean(B)     diff       pval     hedges 
+0  LI       LO  -8.522900 -16.000108   7.477208  0.042565  0.530337
+1  LI       UI  -8.522900 -10.769321   2.246420  0.785321  0.291319
+2  LI       UO  -8.522900 -18.438518   9.915618  0.000003  0.738852
+3  LI  central  -8.522900  -5.685078  -2.837822  0.381923 -0.780163
+4  LO       UI -16.000108 -10.769321  -5.230788  0.435597 -0.415280
+5  LO       UO -16.000108 -18.438518   2.438410  0.907135  0.177473
+6  LO  central -16.000108  -5.685078 -10.315030  0.005197 -0.778858
+7  UI       UO -10.769321 -18.438518   7.669197  0.015736  0.597766
+8  UI  central -10.769321  -5.685078  -5.084243  0.197057 -0.716093
+9  UO  central -18.438518  -5.685078 -12.753440  0.000003 -0.972931
+
+--- Running Kruskal-Wallis H Test (Non-parametric Alternative) ---
+  - Result: H=12.6498, p=0.0131
+  - Significant difference found. Use Dunn's Test with Bonferroni correction for post-hoc.
+
+======================================================================
+STATISTICAL SUMMARY for quadrant_prone
+                count    mean        std      median  
+quadrant_prone                                        
+LI                3    -8.522900   1.238045  -8.289393
+LO               34   -16.000108  14.203274 -14.364024
+UI               18   -10.769321   7.814588 -12.851155
+UO               93   -18.438518  13.455627 -18.406568
+central           8    -5.685078   3.712460  -4.298825
+======================================================================
+
+======================================================================
+ANALYSIS: diff_DTN_Nipple grouped by landmark_type
+======================================================================
+
+## 1. Assumption Check: Normality (Shapiro-Wilk)
+  - Group 'cyst' (N=51): p=0.1232 (Normal)
+  - Group 'lymph' (N=71): p=0.4973 (Normal)
+  - Group 'other' (N=34): p=0.0595 (Normal)
+
+## 2. Assumption Check: Homogeneity of Variances (Levene's Test)
+  - Levene's Test (Brown-Forsythe): F=4.6820, p=0.0106 (UNEQUAL (p < 0.05))
+
+## 3. Inferential Testing
+
+--- Running Welch's ANOVA (Unequal Variances) ---
+  - Result: F=35.2011, p=0.0000
+  - POST-HOC: Games-Howell (for unequal variances)
+    A      B      mean(A)    mean(B)     diff         pval       hedges 
+0   cyst  lymph  -8.769251 -24.117704  15.348454  7.420731e-13  1.401952
+1   cyst  other  -8.769251 -10.708651   1.939401  6.527040e-01  0.206805
+2  lymph  other -24.117704 -10.708651 -13.409053  1.202155e-06 -1.100569
+
+--- Running Kruskal-Wallis H Test (Non-parametric Alternative) ---
+  - Result: H=50.9582, p=0.0000
+  - Significant difference found. Use Dunn's Test with Bonferroni correction for post-hoc.
+
+======================================================================
+STATISTICAL SUMMARY for landmark_type
+               count    mean        std      median  
+landmark_type                                        
+cyst            51    -8.769251   7.939563  -8.289393
+lymph           71   -24.117704  12.564919 -22.770834
+other           34   -10.708651  11.031483  -9.066079
+======================================================================
+
+======================================================================
+TWO-GROUP ANALYSIS: diff_DTN_Nipple grouped by landmark_side_prone
+======================================================================
+
+## 1. Assumption Check: Normality (Shapiro-Wilk)
+  - Group 'LB' (N=79): p=0.0868 (Normal)
+  - Group 'RB' (N=77): p=0.0014 (Non-Normal)
+
+## 2. Assumption Check: Homogeneity of Variances (Levene's Test)
+  - Levene's Test: F=0.1342, p=0.7146 (ASSUMED EQUAL (p >= 0.05))
+
+## 3. Inferential Testing
+
+--- Running Mann-Whitney U test (Non-parametric) ---
+  - Test: Mann-Whitney U
+  - Result: U=2439.0000, p=0.0328 (Significant)
+
+======================================================================
+STATISTICAL SUMMARY for landmark_side_prone
+                     count    mean        std      median  
+landmark_side_prone                                        
+LB                    79   -18.204008  13.039736 -17.811912
+RB                    77   -14.098263  12.871478 -12.183716
+======================================================================
+
+
+*** Group Analysis for Dependent Variable: diff_DTR_Rib_Cage ***
+
+======================================================================
+ANALYSIS: diff_DTR_Rib_Cage grouped by quadrant_prone
+======================================================================
+
+## 1. Assumption Check: Normality (Shapiro-Wilk)
+  - Group 'LI' (N=3): p=0.0849 (Normal)
+  - Group 'LO' (N=34): p=0.0112 (NON-NORMAL)
+  - Group 'UI' (N=18): p=0.0931 (Normal)
+  - Group 'UO' (N=93): p=0.0000 (NON-NORMAL)
+  - Group 'central' (N=8): p=0.0119 (NON-NORMAL)
+
+## 2. Assumption Check: Homogeneity of Variances (Levene's Test)
+  - Levene's Test (Brown-Forsythe): F=0.4160, p=0.7969 (ASSUMED EQUAL (p >= 0.05))
+
+## 3. Inferential Testing
+
+--- Running One-way ANOVA (Equal Variances) ---
+  - Result: F=4.3366, p=0.0024
+  - POST-HOC: Tukey's HSD (for equal variances)
+ Multiple Comparison of Means - Tukey HSD, FWER=0.05  
+======================================================
+group1  group2 meandiff p-adj   lower    upper  reject
+------------------------------------------------------
+    LI      LO  19.9054 0.3707 -10.4299 50.2408  False
+    LI      UI  10.0463 0.9028 -21.3632 41.4558  False
+    LI      UO  23.1586 0.1991  -6.3862 52.7035  False
+    LI central   4.6136 0.9958 -29.4852 38.7124  False
+    LO      UI  -9.8592 0.3468 -24.5408  4.8225  False
+    LO      UO   3.2532 0.9003  -6.8409 13.3473  False
+    LO central -15.2918 0.2115 -35.0838  4.5001  False
+    UI      UO  13.1124 0.0461   0.1426 26.0821   True
+    UI central  -5.4327  0.956 -26.8346 15.9693  False
+    UO central  -18.545 0.0502 -37.1026  0.0126  False
+------------------------------------------------------
+
+--- Running Kruskal-Wallis H Test (Non-parametric Alternative) ---
+  - Result: H=19.9154, p=0.0005
+  - Significant difference found. Use Dunn's Test with Bonferroni correction for post-hoc.
+
+======================================================================
+STATISTICAL SUMMARY for quadrant_prone
+                count    mean        std      median  
+quadrant_prone                                        
+LI                3   -37.266204  18.634518 -47.185701
+LO               34   -17.360762  17.479032 -12.515097
+UI               18   -27.219919  17.452390 -27.334002
+UO               93   -14.107566  18.982139  -4.641123
+central           8   -32.652575  12.794096 -35.244025
+======================================================================
+
+======================================================================
+ANALYSIS: diff_DTR_Rib_Cage grouped by landmark_type
+======================================================================
+
+## 1. Assumption Check: Normality (Shapiro-Wilk)
+  - Group 'cyst' (N=51): p=0.0862 (Normal)
+  - Group 'lymph' (N=71): p=0.0000 (NON-NORMAL)
+  - Group 'other' (N=34): p=0.2489 (Normal)
+
+## 2. Assumption Check: Homogeneity of Variances (Levene's Test)
+  - Levene's Test (Brown-Forsythe): F=23.5855, p=0.0000 (UNEQUAL (p < 0.05))
+
+## 3. Inferential Testing
+
+--- Running Welch's ANOVA (Unequal Variances) ---
+  - Result: F=65.2335, p=0.0000
+  - POST-HOC: Games-Howell (for unequal variances)
+    A      B      mean(A)    mean(B)     diff         pval       hedges 
+0   cyst  lymph -31.728762  -4.655475 -27.073287  1.443290e-15 -2.145233
+1   cyst  other -31.728762 -24.015933  -7.712829  1.629673e-01 -0.423616
+2  lymph  other  -4.655475 -24.015933  19.360458  1.371546e-05  1.407533
+
+--- Running Kruskal-Wallis H Test (Non-parametric Alternative) ---
+  - Result: H=68.9118, p=0.0000
+  - Significant difference found. Use Dunn's Test with Bonferroni correction for post-hoc.
+
+======================================================================
+STATISTICAL SUMMARY for landmark_type
+               count    mean        std      median  
+landmark_type                                        
+cyst            51   -31.728762  16.336420 -31.627504
+lymph           71    -4.655475   8.888010  -2.557414
+other           34   -24.015933  20.355967 -23.803278
+======================================================================
+
+======================================================================
+TWO-GROUP ANALYSIS: diff_DTR_Rib_Cage grouped by landmark_side_prone
+======================================================================
+
+## 1. Assumption Check: Normality (Shapiro-Wilk)
+  - Group 'LB' (N=79): p=0.0000 (Non-Normal)
+  - Group 'RB' (N=77): p=0.0154 (Non-Normal)
+
+## 2. Assumption Check: Homogeneity of Variances (Levene's Test)
+  - Levene's Test: F=1.6754, p=0.1975 (ASSUMED EQUAL (p >= 0.05))
+
+## 3. Inferential Testing
+
+--- Running Mann-Whitney U test (Non-parametric) ---
+  - Test: Mann-Whitney U
+  - Result: U=3984.0000, p=0.0008 (Significant)
+
+======================================================================
+STATISTICAL SUMMARY for landmark_side_prone
+                     count    mean        std      median  
+landmark_side_prone                                        
+LB                    79   -13.289463  18.607634  -4.880535
+RB                    77   -22.277658  18.448064 -23.275687
+======================================================================
+Correlation between BMI and diff_DTS_Skin: rho=0.20, p-val=1.5016e-06
+Correlation between Age and diff_DTS_Skin: rho=0.04, p-val=3.7643e-01
+
+--- MULTIVARIATE REGRESSION FOR: diff_DTS_Skin ---
+==============================================================================
+                 coef    std err          t      P>|t|      [0.025      0.975]
+------------------------------------------------------------------------------
+const         -3.2236      1.952     -1.652      0.099      -7.057       0.610
+Age           -0.0032      0.027     -0.119      0.905      -0.056       0.050
+BMI            0.1246      0.082      1.521      0.129      -0.036       0.286
+==============================================================================
+Correlation between BMI and diff_DTN_Nipple: rho=-0.23, p-val=3.3145e-08
+Correlation between Age and diff_DTN_Nipple: rho=-0.08, p-val=4.8889e-02
+
+--- MULTIVARIATE REGRESSION FOR: diff_DTN_Nipple ---
+==============================================================================
+                 coef    std err          t      P>|t|      [0.025      0.975]
+------------------------------------------------------------------------------
+const         -2.2685      3.502     -0.648      0.517      -9.148       4.611
+Age           -0.0477      0.048     -0.988      0.324      -0.142       0.047
+BMI           -0.4266      0.147     -2.901      0.004      -0.715      -0.138
+==============================================================================
+Correlation between BMI and diff_DTR_Rib_Cage: rho=-0.23, p-val=3.9816e-08
+Correlation between Age and diff_DTR_Rib_Cage: rho=-0.13, p-val=1.9628e-03
+
+--- MULTIVARIATE REGRESSION FOR: diff_DTR_Rib_Cage ---
+==============================================================================
+                 coef    std err          t      P>|t|      [0.025      0.975]
+------------------------------------------------------------------------------
+const         18.0965      4.844      3.736      0.000       8.582      27.611
+Age           -0.0115      0.067     -0.173      0.863      -0.143       0.120
+BMI           -1.4452      0.203     -7.107      0.000      -1.845      -1.046
+==============================================================================
+Visualization complete. Plot saved as '..\output\figs\v6\BMI\BMI_Shift_Correlations.png'
+
+============================================================
+EFFECT OF INITIAL PROXIMITY TO SKIN ON SHIFT MAGNITUDE
+============================================================
+
+Metric: diff_DTS_Skin
+  - Correlation with Prone DTS: rho=-0.154, p=5.4148e-02
+  - Superficial Mean (N=62): 1.07 mm
+  - Deep Mean (N=94): -0.10 mm
+  - Difference Significance: p=1.9544e-01
+
+Metric: diff_DTN_Nipple
+  - Correlation with Prone DTS: rho=-0.428, p=2.4366e-08
+  - Superficial Mean (N=62): -10.19 mm
+  - Deep Mean (N=94): -20.13 mm
+  - Difference Significance: p=2.1133e-06
+
+Metric: diff_DTR_Rib_Cage
+  - Correlation with Prone DTS: rho=0.202, p=1.1357e-02
+  - Superficial Mean (N=62): -21.75 mm
+  - Deep Mean (N=94): -15.07 mm
+  - Difference Significance: p=2.4866e-02
+
+--- Plotting Landmarks Relative to Sternum ---
+Color scheme: breast
+Saved: ..\output\figs\v6\landmark vectors\Landmarks_rel_sternum_Coronal.png
+Saved: ..\output\figs\v6\landmark vectors\Landmarks_rel_sternum_Sagittal.png
+Saved: ..\output\figs\v6\landmark vectors\Landmarks_rel_sternum_Axial.png
+
+--- Plotting Dual Sagittal View (landmarks) ---
+Saved: ..\output\figs\v6\landmark vectors\Landmarks_rel_sternum_sagittal_dual.png
+[OK] Completed plotting landmarks relative to sternum with 'breast' coloring
+
+--- Plotting Landmarks Relative to Sternum ---
+Color scheme: subject
+Number of unique subjects: 63
+Saved: ..\output\figs\v6\landmark vectors\Landmarks_rel_sternum_Coronal_by_subject.png
+Saved: ..\output\figs\v6\landmark vectors\Landmarks_rel_sternum_Sagittal_by_subject.png
+Saved: ..\output\figs\v6\landmark vectors\Landmarks_rel_sternum_Axial_by_subject.png
+
+--- Plotting Dual Sagittal View (landmarks) ---
+Saved: ..\output\figs\v6\landmark vectors\Landmarks_rel_sternum_sagittal_dual_by_subject.png
+[OK] Completed plotting landmarks relative to sternum with 'subject' coloring
+
+--- Plotting Landmarks Relative to Sternum ---
+Color scheme: dts
+Saved: ..\output\figs\v6\landmark vectors\Landmarks_rel_sternum_Coronal_DTS.png
+Saved: ..\output\figs\v6\landmark vectors\Landmarks_rel_sternum_Sagittal_DTS.png
+Saved: ..\output\figs\v6\landmark vectors\Landmarks_rel_sternum_Axial_DTS.png
+
+--- Plotting Dual Sagittal View (landmarks) ---
+Saved: ..\output\figs\v6\landmark vectors\Landmarks_rel_sternum_sagittal_dual_DTS.png
+[OK] Completed plotting landmarks relative to sternum with 'dts' coloring
+
+--- Plotting Nipples Relative to Sternum ---
+Color scheme: breast
+Saved: ..\output\figs\v6\landmark vectors\Nipples_rel_sternum_Coronal.png
+Saved: ..\output\figs\v6\landmark vectors\Nipples_rel_sternum_Sagittal.png
+Saved: ..\output\figs\v6\landmark vectors\Nipples_rel_sternum_Axial.png
+
+--- Plotting Dual Sagittal View (nipples) ---
+Saved: ..\output\figs\v6\landmark vectors\Nipples_rel_sternum_sagittal_dual.png
+[OK] Completed plotting nipples relative to sternum with 'breast' coloring
+
+--- Plotting Nipples Relative to Sternum ---
+Color scheme: subject
+Number of unique subjects: 63
+Saved: ..\output\figs\v6\landmark vectors\Nipples_rel_sternum_Coronal_by_subject.png
+Saved: ..\output\figs\v6\landmark vectors\Nipples_rel_sternum_Sagittal_by_subject.png
+Saved: ..\output\figs\v6\landmark vectors\Nipples_rel_sternum_Axial_by_subject.png
+
+--- Plotting Dual Sagittal View (nipples) ---
+Saved: ..\output\figs\v6\landmark vectors\Nipples_rel_sternum_sagittal_dual_by_subject.png
+[OK] Completed plotting nipples relative to sternum with 'subject' coloring
+
+--- Plotting Nipples Relative to Sternum ---
+Color scheme: dts
+Saved: ..\output\figs\v6\landmark vectors\Nipples_rel_sternum_Coronal_DTS.png
+Saved: ..\output\figs\v6\landmark vectors\Nipples_rel_sternum_Sagittal_DTS.png
+Saved: ..\output\figs\v6\landmark vectors\Nipples_rel_sternum_Axial_DTS.png
+
+--- Plotting Dual Sagittal View (nipples) ---
+Saved: ..\output\figs\v6\landmark vectors\Nipples_rel_sternum_sagittal_dual_DTS.png
+[OK] Completed plotting nipples relative to sternum with 'dts' coloring
+
+==================================================
+PLOTTING LANDMARK MOTION RELATIVE TO NIPPLE
+==================================================
+
+--- Plotting Nipple-Relative Motion ---

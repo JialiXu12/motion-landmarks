@@ -247,6 +247,7 @@ def preprocess_for_alignment(
             print(f"  PC superior trim: {pc_superior_trim:.1f}mm -> "
                   f"{n_before} -> {target_pts.shape[0]} points")
 
+
     # ── 2. Compute initial rotation (optional Rodrigues SI axis alignment) ──
     if use_initial_rotation:
         prone_si = src_si - src_ss
@@ -398,6 +399,8 @@ if __name__ == "__main__":
             selected_elements=SELECTED_ELEMENTS,
             mutual_region_padding=15.0,
             pc_inferior_trim=15.0 if vl_id == 54 else 0.0,
+            pc_lateral_inferior_x=20.0 if vl_id == 54 else 10.0,
+            pc_lateral_inferior_z=50.0 if vl_id == 54 else 0.0,
             verbose=True,
             debug_filter_plot=True,
         )

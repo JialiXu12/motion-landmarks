@@ -18,7 +18,8 @@ from scipy.spatial import cKDTree
 from typing import Tuple, Dict, Optional
 import external.breast_metadata_mdv.breast_metadata as breast_metadata
 from structures import Subject
-from utils import apply_transform, extract_contour_points, filter_point_cloud_asymmetric
+from utils import apply_transform, extract_contour_points
+from alignment import filter_point_cloud_asymmetric
 from utils import get_landmarks_as_array, plot_evaluate_alignment
 from utils_plot import plot_all
 
@@ -188,6 +189,11 @@ def run_fixed_sternum_icp(
     max_iterations: int = 50,
     huber_delta: float = 2.0,
     convergence_threshold: float = 1e-6,
+    k_neighbors_normals: int = 30,
+    optimizer_ftol: float = 1e-9,
+    optimizer_maxiter: int = 100,
+    use_trimmed_icp: bool = True,
+    trim_percentage: float = 0.1,
     verbose: bool = False
 ) -> Tuple[np.ndarray, np.ndarray, Dict]:
     """
@@ -198,12 +204,19 @@ def run_fixed_sternum_icp(
     ensuring the sternum cannot slide during refinement.
 
     Args:
-        source_pts_centered: Source points (centered on sternum superior)
-        target_pts_centered: Target points (centered on sternum superior)
-        max_correspondence_distance: Max distance for correspondences
+        source_pts_centered: Source points (prone mesh) (centered on sternum superior)
+        target_pts_centered: Target points (supine point cloud) (centered on sternum superior)
+        max_correspondence_distance: Max distance for correspondences (initial value)
         max_iterations: Max ICP iterations
         huber_delta: Threshold for Huber loss (robustness parameter)
-        convergence_threshold: Convergence criterion for angle change
+        convergence_threshold: Convergence criterion for angle change (radians)
+        adaptive_correspondence: Use coarse-to-fine correspondence distance
+        correspondence_schedule: How to reduce correspondence distance ('exponential', 'linear', 'fixed')
+        k_neighbors_normals: Number of neighbors for normal estimation (higher = smoother)
+        optimizer_ftol: Function tolerance for optimizer (smaller = more precise)
+        optimizer_maxiter: Max iterations per optimization step
+        use_trimmed_icp: Reject worst X% of correspondences per iteration
+        trim_percentage: Percentage of worst correspondences to reject (0.0-0.5)
         verbose: Print debug info
 
     Returns:
@@ -215,9 +228,10 @@ def run_fixed_sternum_icp(
     if source_pts_centered.size == 0 or target_pts_centered.size == 0:
         return np.eye(3), source_pts_centered.copy(), {"fitness": 0.0, "inlier_rmse": np.nan}
 
-    # Estimate normals
-    print("  Estimating surface normals...")
-    target_normals = estimate_normals_from_neighbors(target_pts_centered, k_neighbors=50)
+    # Estimate normals with improved k_neighbors
+    if verbose:
+        print(f"  Estimating surface normals (k={k_neighbors_normals})...")
+    target_normals = estimate_normals_from_neighbors(target_pts_centered, k_neighbors=k_neighbors_normals)
 
     # Build KD-Tree for fast nearest neighbor search
     tree = cKDTree(target_pts_centered)
@@ -227,8 +241,13 @@ def run_fixed_sternum_icp(
 
     # Iterative ICP refinement
     iteration_history = []
+    prev_error = np.inf
+    iteration = 0  # Initialize counter
 
     for iteration in range(max_iterations):
+        # Use fixed correspondence distance (no adaptation)
+        current_dist_threshold = max_correspondence_distance
+
         # Apply current rotation
         source_rotated = apply_rotation_only(source_pts_centered, R_cumulative)
 
@@ -236,14 +255,21 @@ def run_fixed_sternum_icp(
         distances, indices = tree.query(source_rotated, k=1)
 
         # Filter by max correspondence distance
-        valid_mask = distances < max_correspondence_distance
+        valid_mask = distances < current_dist_threshold
+
+        # Trimmed ICP: reject worst correspondences
+        if use_trimmed_icp and np.sum(valid_mask) > 100:
+            valid_distances = distances[valid_mask]
+            trim_threshold = np.percentile(valid_distances, (1.0 - trim_percentage) * 100)
+            valid_mask = valid_mask & (distances <= trim_threshold)
+
         valid_source = source_rotated[valid_mask]
         valid_target = target_pts_centered[indices[valid_mask]]
         valid_normals = target_normals[indices[valid_mask]]
 
         if len(valid_source) < 10:
             if verbose:
-                print(f"  Warning: Only {len(valid_source)} correspondences found")
+                print(f"  Warning: Only {len(valid_source)} correspondences found at iteration {iteration + 1}")
             break
 
         # Compute point-to-plane residuals
@@ -254,10 +280,15 @@ def run_fixed_sternum_icp(
         fitness = len(valid_source) / len(source_rotated)
         inlier_rmse = np.sqrt(np.mean(ptp_residuals**2))
 
+        # Track error for convergence
+        current_error = huber_loss(ptp_residuals, delta=huber_delta)
+
         iteration_history.append({
             "fitness": fitness,
             "inlier_rmse": inlier_rmse,
-            "num_inliers": len(valid_source)
+            "num_inliers": len(valid_source),
+            "correspondence_threshold": current_dist_threshold,
+            "huber_loss": current_error
         })
 
         # Define objective function with Huber loss
@@ -275,29 +306,32 @@ def run_fixed_sternum_icp(
             # Huber loss for robustness
             return huber_loss(residuals, delta=huber_delta)
 
-        # Optimize rotation increment
+        # Optimize rotation increment with improved parameters
         result = minimize(
             rotation_objective,
             np.zeros(3),  # Start from no change
             method='L-BFGS-B',
-            options={'maxiter': 50, 'ftol': 1e-8}
+            options={'maxiter': optimizer_maxiter, 'ftol': optimizer_ftol}
         )
 
-        # Check convergence
+        # Check convergence based on angle change and error improvement
         angle_change = np.linalg.norm(result.x)
+        error_improvement = (prev_error - current_error) / max(prev_error, 1e-10)
 
-        if angle_change < convergence_threshold:
+        if angle_change < convergence_threshold and error_improvement < 1e-4:
             if verbose:
-                print(f"  Converged at iteration {iteration + 1} (angle change: {np.degrees(angle_change):.6f}°)")
+                print(f"  Converged at iteration {iteration + 1} "
+                      f"(angle: {np.degrees(angle_change):.6f}°, error improve: {error_improvement:.6e})")
             break
 
         # Update cumulative rotation
         R_delta = rotation_matrix_from_euler(result.x)
         R_cumulative = R_delta @ R_cumulative
+        prev_error = current_error
 
-        if verbose and (iteration + 1) % 10 == 0:
-            print(f"  Iteration {iteration + 1}: fitness={fitness:.4f}, RMSE={inlier_rmse:.2f} mm, "
-                  f"angle change={np.degrees(angle_change):.4f}°")
+        if verbose and ((iteration + 1) % 10 == 0 or iteration < 5):
+            print(f"  Iter {iteration + 1}: fitness={fitness:.4f}, RMSE={inlier_rmse:.2f} mm, "
+                  f"angle_Δ={np.degrees(angle_change):.4f}°")
 
     # Final alignment
     source_aligned = apply_rotation_only(source_pts_centered, R_cumulative)
@@ -474,8 +508,8 @@ def align_prone_to_supine_fixed_sternum(
     # Apply rotation to all prone data (still centered)
     prone_rib_rotated = apply_rotation_only(prone_rib_centered, R_optimal)
     prone_sternum_rotated = apply_rotation_only(prone_sternum_centered, R_optimal)
-    prone_nipple_rotated = apply_rotation_only(prone_nipple_centered, R_optimal)
-    prone_landmarks_rotated = apply_rotation_only(prone_landmarks_centered, R_optimal)
+    # prone_nipple_rotated = apply_rotation_only(prone_nipple_centered, R_optimal)
+    # prone_landmarks_rotated = apply_rotation_only(prone_landmarks_centered, R_optimal)
 
     # Evaluate initial fit (still in centered coordinates)
     from scipy.spatial import cKDTree
@@ -516,8 +550,15 @@ def align_prone_to_supine_fixed_sternum(
     R_icp, supine_rib_aligned, icp_info = run_fixed_sternum_icp(
         source_pts_centered=prone_rib_rotated,
         target_pts_centered=supine_rib_centered,
-        max_correspondence_distance=10.0,
-        max_iterations=200,
+        max_correspondence_distance=10.0,       # Fixed correspondence distance
+        max_iterations=200,                     # More iterations for convergence
+        huber_delta=2.0,                        # Outlier threshold
+        convergence_threshold=1e-6,             # Convergence criterion
+        k_neighbors_normals=30,                 # Normal estimation neighbors
+        optimizer_ftol=1e-8,                    # Optimizer tolerance
+        optimizer_maxiter=50,                   # Optimizer iterations
+        use_trimmed_icp=True,                   # Reject worst correspondences
+        trim_percentage=0.1,                    # Trim 10% worst points
         verbose=True
     )
 
@@ -533,6 +574,12 @@ def align_prone_to_supine_fixed_sternum(
     # Final evaluation (centered)
     tree = cKDTree(supine_rib_centered)
     distances_final, _ = tree.query(prone_rib_final, k=1)
+
+    # VISUALIZATION: What does error field look like from target perspective?
+    #    Query: For each supine point → nearest prone point
+    #    Purpose: Visualize error distribution (supine colored by distance to prone)
+    tree_prone = cKDTree(prone_rib_final)
+    distances_vis, nearest_indices_vis = tree_prone.query(supine_rib_centered, k=1)
 
     print(f"\nFinal alignment quality (centered coordinates):")
     print(f"  Mean ribcage error: {np.mean(distances_final):.2f} mm")
@@ -559,21 +606,25 @@ def align_prone_to_supine_fixed_sternum(
                 anat_landmarks=sternum_lists)
 
         # Visualize alignment quality with error colors
-        try:
-            plot_evaluate_alignment(
-                supine_pts=supine_rib_vis,
-                transformed_prone_mesh=prone_rib_final_vis,
-                distances=distances_final,
-                idxs=np.arange(len(distances_final)),
-                worst_n=60,
-                cmap="viridis",
-                point_size=3,
-                arrow_scale=20,
-                show_scalar_bar=True,
-                return_data=False
-            )
-        except Exception as e:
-            print(f"  Could not visualize alignment errors: {e}")
+        print("\n  Calling plot_evaluate_alignment...")
+        print(f"    supine_pts shape: {supine_rib_vis.shape}")
+        print(f"    prone_mesh shape: {prone_rib_final_vis.shape}")
+        print(f"    distances_vis shape: {distances_vis.shape}")
+        print(f"    distances_vis range: [{distances_vis.min():.2f}, {distances_vis.max():.2f}] mm")
+        print(f"    nearest_indices_vis shape: {nearest_indices_vis.shape}")
+
+        plot_evaluate_alignment(
+            supine_pts=supine_rib_vis,
+            transformed_prone_mesh=prone_rib_final_vis,
+            distances=distances_vis,
+            idxs=nearest_indices_vis,
+            worst_n=60,
+            cmap="viridis",
+            point_size=3,
+            arrow_scale=20,
+            show_scalar_bar=True,
+            return_data=False
+        )
 
     # ==========================================================
     # PHASE 5: CREATE TRANSFORMATION MATRIX (for compatibility only)
@@ -584,7 +635,7 @@ def align_prone_to_supine_fixed_sternum(
     print("-"*80)
 
     # Create 4x4 transformation matrix for external tools that need it
-    # T = [R, t; 0, 1] where t = anchor_supine - R @ anchor_prone
+    # Translation matrix: T = [R, t; 0, 1] where t = anchor_supine - R @ anchor_prone
     # This matrix transforms from original prone coordinates to original supine coordinates
     T_total = np.eye(4)
     T_total[:3, :3] = R_total

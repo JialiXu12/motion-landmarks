@@ -1,0 +1,52 @@
+﻿
+======================================================================
+COHORT ALIGNMENT TEST - DEFAULT PARAMETERS
+Selected elements: [0, 1, 6, 7, 8, 9, 14, 15, 16, 17, 22, 23]
+Default params: {'max_correspondence_distance': 15.0, 'trim_percentage': 0.1, 'res': 10, 'max_iterations': 200}
+======================================================================
+
+[1/1] Processing VL00009...
+INFO: Mesh has 2D elements with basis ['H3', 'H3']
+Selected 12/24 elements -> 8748 points
+  Point-to-Point: RMSE=12.89mm (full), 12.97mm (selected)
+  Surface-to-Point: RMSE=13.01mm (full), 13.01mm (selected)
+
+======================================================================
+ANALYSIS SUMMARY
+======================================================================
+
+--- Point-to-Point Alignment ---
+Total successful: 1
+
+Cohort Statistics (Full Mesh):
+  RMSE: 12.89 ┬+/- nan mm
+  Mean: 9.55 ┬+/- nan mm
+  Range: 12.89 - 12.89 mm
+
+Cohort Statistics (Selected Mesh):
+  RMSE: 12.97 ┬+/- nan mm
+  Mean: 8.59 ┬+/- nan mm
+
+Optimal Parameters (Point-to-Point):
+  max_correspondence_distance: 15.0
+  trim_percentage: 0.1
+  ΓåÆ Full RMSE: 12.89 ┬+/- nan mm
+
+--- Surface-to-Point Alignment ---
+Total successful: 1
+
+Cohort Statistics (Full Mesh):
+  RMSE: 13.01 ┬+/- nan mm
+  Mean: 9.62 ┬+/- nan mm
+  Range: 13.01 - 13.01 mm
+
+Cohort Statistics (Selected Mesh):
+  RMSE: 13.01 ┬+/- nan mm
+  Mean: 8.61 ┬+/- nan mm
+
+--- Per-Subject Optimal Parameters ---
+  VL00009: RMSE=12.89mm, method=point_to_point, dist=15.0, trim=0.1
+
+======================================================================
+Results saved to: ..\output\alignment_test_results_20260224_104811.xlsx
+======================================================================

@@ -37,6 +37,10 @@ ANATOMICAL_JSON_BASE_ROOT = Path(r"U:\sandbox\jxu759\volunteer_seg\results")
 
 PRONE_RIBCAGE_ROOT = Path(r"U:\sandbox\jxu759\volunteer_prone_mesh")
 SUPINE_RIBCAGE_ROOT = Path(r"U:\sandbox\jxu759\volunteer_seg\results\supine\rib_cage")
+SUPINE_RIBCAGE_UPDATED_ROOT = Path(r"U:\sandbox\jxu759\volunteer_seg\results\supine\rib_cage\updated")
+
+# Subjects using updated supine ribcage segmentation
+UPDATED_SEG_IDS = {20, 31, 46, 54}  # 68, 70, 72 excluded: updated file is 0 bytes
 
 OUTPUT_DIR = Path("../output")
 EXCEL_FILE_PATH = OUTPUT_DIR / "landmark_results_v8_2026_03_16.xlsx"
@@ -49,23 +53,39 @@ OUTPUT_DIR_T_MATRIX.mkdir(parents=True, exist_ok=True)
 # VL_IDS = [32,34,35,36,37,38,39,40,41,42,44,45,46,47,48,49,50]
 # VL_IDS = [51,52,54,56,57,58,59,60,61,63,64,65,66,67,68,69]
 # VL_IDS = [70,71,72,74,75,76,77,78,79,81,82,84,85,86,87,88,89]
-VL_IDS = [32,34,35,36,37,38,39,40,41,42,44,45,46,47,48,49,50]
+VL_IDS = [46]
 POSITIONS = ["prone", "supine"]
 
 # Per-subject point cloud inferior trim (mm).
 # Subjects with segmentation artifacts extending below the ribcage.
 PC_INFERIOR_TRIM = {
     22: 55.0,
-    32: 40.0,
+    # 32: 55.0,
+    37: 50.0,
     38: 55.0,
+    44: 30.0,
+    45: 40.0,
+    46: 20.0,
+    52: 60.0,
     54: 15.0,
+    57: 80.0,
+    58: 20.0,
+    72: 60.0
 }
 
 # Per-subject point cloud superior trim (mm).
 # Subjects with segmentation artifacts extending above the prone mesh coverage.
 PC_SUPERIOR_TRIM = {
-    20: 30.0
+    # 20: 30.0,
+    40: 50.0,
+    44: 20.0,
+    46: 20.0,
+    47: 20.0,
+    54: 50.0,
+    56: 30.0,
+    72: 50.0,
 }
+
 
 print(f"Number of participants: {len(VL_IDS)}")
 
@@ -103,7 +123,8 @@ for vl_id, filtered_subject in all_subjects_filtered.items():
 
     try:
         prone_mesh_file = PRONE_RIBCAGE_ROOT / f"{vl_id_str}_ribcage_prone.mesh"
-        supine_seg_file = SUPINE_RIBCAGE_ROOT / f"rib_cage_{vl_id_str}.nii.gz"
+        seg_root = SUPINE_RIBCAGE_UPDATED_ROOT if vl_id in UPDATED_SEG_IDS else SUPINE_RIBCAGE_ROOT
+        supine_seg_file = seg_root / f"rib_cage_{vl_id_str}.nii.gz"
 
         if not prone_mesh_file.exists():
             print(f"Skipping: Prone mesh not found at {prone_mesh_file}")
@@ -117,7 +138,7 @@ for vl_id, filtered_subject in all_subjects_filtered.items():
             prone_ribcage_mesh_path=prone_mesh_file,
             supine_ribcage_seg_path=supine_seg_file,
             orientation_flag='RAI',
-            plot_for_debug=True,
+            plot_for_debug=False,
             selected_elements=[0, 1, 6, 7, 8, 9, 14, 15, 16, 17, 22, 23],
             use_initial_rotation=True,
             mutual_region_padding_reciprocal=15,

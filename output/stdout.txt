@@ -1,0 +1,64 @@
+
+======================================================================
+COHORT ALIGNMENT TEST - DEFAULT PARAMETERS
+Selected elements: [0, 1, 6, 7, 8, 9, 14, 15, 16, 17, 22, 23]
+Default params: {'max_correspondence_distance': 15.0, 'trim_percentage': 0.1, 'res': 10, 'max_iterations': 200}
+======================================================================
+
+[1/3] Processing VL00009...
+INFO: Mesh has 2D elements with basis ['H3', 'H3']
+Selected 12/24 elements -> 8748 points
+  Point-to-Point: RMSE=12.89mm (full), 12.97mm (selected)
+  Surface-to-Point: RMSE=13.01mm (full), 13.01mm (selected)
+[2/3] Processing VL00022...
+INFO: Mesh has 2D elements with basis ['H3', 'H3']
+Selected 12/24 elements -> 8748 points
+  Point-to-Point: RMSE=11.96mm (full), 13.56mm (selected)
+  Surface-to-Point: RMSE=14.40mm (full), 16.23mm (selected)
+[3/3] Processing VL00031...
+INFO: Mesh has 2D elements with basis ['H3', 'H3']
+Selected 12/24 elements -> 8748 points
+  Point-to-Point: RMSE=14.47mm (full), 15.86mm (selected)
+  Surface-to-Point: RMSE=15.48mm (full), 17.49mm (selected)
+
+======================================================================
+ANALYSIS SUMMARY
+======================================================================
+
+--- Point-to-Point Alignment ---
+Total successful: 3
+
+Cohort Statistics (Full Mesh):
+  RMSE: 13.11 Â+/- 1.27 mm
+  Mean: 8.70 Â+/- 0.79 mm
+  Range: 11.96 - 14.47 mm
+
+Cohort Statistics (Selected Mesh):
+  RMSE: 14.13 Â+/- 1.53 mm
+  Mean: 8.63 Â+/- 0.20 mm
+
+Optimal Parameters (Point-to-Point):
+  max_correspondence_distance: 15.0
+  trim_percentage: 0.1
+  â†’ Full RMSE: 13.11 Â+/- 1.27 mm
+
+--- Surface-to-Point Alignment ---
+Total successful: 3
+
+Cohort Statistics (Full Mesh):
+  RMSE: 14.29 Â+/- 1.24 mm
+  Mean: 9.57 Â+/- 0.06 mm
+  Range: 13.01 - 15.48 mm
+
+Cohort Statistics (Selected Mesh):
+  RMSE: 15.58 Â+/- 2.31 mm
+  Mean: 9.29 Â+/- 0.60 mm
+
+--- Per-Subject Optimal Parameters ---
+  VL00009: RMSE=12.89mm, method=point_to_point, dist=15.0, trim=0.1
+  VL00022: RMSE=11.96mm, method=point_to_point, dist=15.0, trim=0.1
+  VL00031: RMSE=14.47mm, method=point_to_point, dist=15.0, trim=0.1
+
+======================================================================
+Results saved to: ..\output\alignment_test_results_20260224_102753.xlsx
+======================================================================

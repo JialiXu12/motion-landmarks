@@ -1,0 +1,95 @@
+ Look at the pattern in the unique |dz| values —
+   they're almost perfectly multiples of 0.9mm:
+
+  0.9, 1.8, 2.7, 3.6, 4.5, 5.4, 6.3, 7.2, 8.1, 9.0 ...
+
+  This is consistent with a high-resolution 3D T2 acquisition (isotropic or
+  near-isotropic voxels, ~0.9mm slice spacing), not a 2D multi-slice
+  acquisition. The SUPINE_SLICE_SPACING_MM config needs updating to 0.9.
+
+  The anomalous point is VL00042, point.003.json (a cyst, mean Z ≈ −78.8mm):
+  - dz = +0.219mm — that's ~0.24 slices (at 0.9mm spacing)
+  - This is the only landmark where the Z difference is NOT a multiple of 0.9mm
+  - It means one registrar placed this cyst at a Z position that doesn't align
+  exactly with a slice centre — either the picker allowed free-cursor placement
+  that wasn't snapped, or there was a sub-voxel interpolation at that specific
+  point
+
+  
+● Summary:
+
+  ┌─────────────────┬───────────────────────────────────────────────────────┐
+  │     Finding     │                        Detail                         │
+  ├─────────────────┼───────────────────────────────────────────────────────┤
+  │ Actual slice    │ ~0.9 mm (3D T2, near-isotropic)           │
+  │ spacing         │                                                       │
+  ├─────────────────┼───────────────────────────────────────────────────────┤
+  │ Old             │ ±2.03 mm = ±2.2 slices — most disagreements are ±1–2  │
+  │ Bland-Altman Z  │ slices                                                │
+  │ LoA             │                                                       │
+  ├─────────────────┼───────────────────────────────────────────────────────┤
+  │ Anomalous point │ VL00042 / point.003.json (cyst, mean Z ≈ −78.8 mm),   │
+  │                 │ dz = +0.219 mm (~0.24 slices)                         │
+  ├─────────────────┼───────────────────────────────────────────────────────┤
+  │                 │ The picker placed this cyst at a sub-voxel Z position │
+  │ Why anomalous   │  not aligned to a slice centre — possibly free-cursor │
+  │                 │  placement rather than snapping                       │
+  └─────────────────┴───────────────────────────────────────────────────────┘
+
+  With SUPINE_SLICE_SPACING_MM = 0.9, the Bland-Altman Z-in-slices panel will
+  now show the bands exactly at 0, ±1, ±2 slices, and VL00042/point.003.json
+  will appear clearly as the only point between integer-slice positions. You
+  should also confirm with check_slice_spacing.py once you have DICOM access.
+
+
+  What the data shows:
+
+  ┌──────────┬──────────┬──────────┐
+  │          │ Anthony  │  Holly   │
+  ├──────────┼──────────┼──────────┤
+  │ Supine X │ 188.575  │ 189.131  │
+  ├──────────┼──────────┼──────────┤
+  │ Supine Y │ −65.371  │ −65.131  │
+  ├──────────┼──────────┼──────────┤
+  │ Supine Z │ −78.880  │ −78.661  │
+  ├──────────┼──────────┼──────────┤
+  │ Prone Z  │ −121.772 │ −121.772 │
+  └──────────┴──────────┴──────────┘
+
+  And for VL00042's other two points, ΔZ = ±0.9mm exactly (integer slices). So
+  this one cyst is the odd one out.
+
+  Why the Z difference is non-integer here specifically:
+
+  The prone Z being exactly identical is the key clue. Most likely workflow:
+  both registrars placed the prone landmark first, and the prone coordinate was
+  either copied or agreed upon. For the supine placement, they each
+  independently located the cyst — and they landed at X/Y positions 0.5mm apart,
+   Y 0.24mm apart, and Z 0.22mm apart.
+
+  The critical insight is that all three coordinates vary continuously here (X,
+  Y, and Z all have similar-magnitude sub-mm differences), unlike every other
+  point where Z varies in discrete 0.9mm steps while X/Y vary continuously.
+
+  This strongly suggests that for this one pick, at least one registrar was not 
+  scrolling through axial slices in the standard 2D view. Instead they were
+  likely in:
+  - A 3D volume rendering — cursor clicks project a ray into the volume and land
+   at whatever depth the renderer picks, giving a fully continuous 3D coordinate
+  - A coronal or sagittal reformatted view — in those orientations Z is an
+  in-plane axis, so cursor position determines Z continuously just like X/Y in
+  axial view
+  - A multi-planar reconstruction (MPR) panel that shows all three planes
+  simultaneously
+
+  In the standard axial 2D scroll view, Z is locked to whichever slice you
+  scrolled to — you can only get Z values at exactly 0, ±0.9, ±1.8 mm, etc. from
+   each other. The 0.219 mm difference proves neither registrar was constrained
+  to axial slice positions for this pick.
+
+  Is this actually a problem? No — 0.219 mm disagreement in Z is smaller than
+  one slice (~0.9 mm) and smaller than the in-plane pixel spacing. The two
+  registrars are in excellent agreement on this cyst (total 3D distance ≈ 0.62
+  mm). It's just that the picking mode used gave a continuous coordinate rather
+  than a discretised one, so it stands out visually in the Bland-Altman as not
+  fitting the banding pattern.

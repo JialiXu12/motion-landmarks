@@ -1,0 +1,20 @@
+Analysis started: 2026-02-10 15:46:52
+Output will be saved to: ..\output\analysis_output_v6_2026_02_10_154652.txt
+================================================================================
+Successfully loaded 3 sheets.
+   Registrar Registrar_name  VL_ID  ...           x          y          z
+0          1        anthony      9  ... -129.135058  17.089070 -23.051826
+1          1        anthony      9  ...   83.845016 -14.541644 -70.751824
+2          1        anthony      9  ...  121.559646  48.610686 -14.051826
+3          1        anthony      9  ...  126.041470  57.126153 -14.051826
+4          1        anthony      9  ... -153.169205   4.307810   2.974062
+
+[5 rows x 12 columns]
+   VL_ID  ...  Mask rib neighborhood avg (supine)
+0      9  ...                            1.588158
+1      9  ...                            1.588158
+2      9  ...                            1.588158
+3     11  ...                            1.495613
+4     11  ...                            1.495613
+
+[5 rows x 66 columns]

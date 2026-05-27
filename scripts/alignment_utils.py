@@ -512,6 +512,9 @@ def filter_mutual_region(
     # --- Step 1: filter target to source bbox ---
     padding_min = np.array([padding, padding, padding_inferior])
     padding_max = np.array([padding, padding, padding])
+
+    # padding_max = np.array([25, padding, padding])
+
     src_bbox_min = src_centered.min(axis=0) - padding_min
     src_bbox_max = src_centered.max(axis=0) + padding_max
 

@@ -30,6 +30,11 @@ SENSITIVITY_MIN = 1.0               # Sweep range start (mm)
 SENSITIVITY_MAX = 10.0              # Sweep range end (mm)
 SENSITIVITY_STEP = 0.5              # Sweep step size (mm)
 
+# Slice spacing for the supine MRI acquisition (mm).
+# Derived from observer data: Z differences cluster at multiples of ~0.9 mm,
+# Verified with: python scripts/check_slice_spacing.py
+SUPINE_SLICE_SPACING_MM = 0.9
+
 INPUT_EXCEL = Path(__file__).parent.parent / "output" / "observer_landmarks_comparison.xlsx"
 OUTPUT_DIR = Path(__file__).parent.parent / "output"
 FIGS_DIR = OUTPUT_DIR / "figs"
@@ -149,6 +154,12 @@ def build_supine_distances(df_no_fibro: pd.DataFrame) -> pd.DataFrame:
     df["Supine Δy (holly−anthony)"] = dy
     df["Supine Δz (holly−anthony)"] = dz
     df["Supine Euclidean Distance"] = euclidean
+
+    # In-plane (XY) distance — excludes through-plane Z discretization
+    df["Supine XY Distance"] = np.sqrt(dx**2 + dy**2)
+
+    # Z difference in slice units (fractional = sub-voxel, integer = whole slices)
+    df["Supine Δz (slices)"] = dz / SUPINE_SLICE_SPACING_MM
 
     return df
 
@@ -277,9 +288,11 @@ def build_interobserver_per_landmark(df_threshold: pd.DataFrame) -> pd.DataFrame
         "Subject", "Filename",
         "Landmark Type (anthony)", "Landmark Type (holly)",
         "Supine Euclidean Distance",
+        "Supine XY Distance",
         "Supine Δx (holly−anthony)",
         "Supine Δy (holly−anthony)",
         "Supine Δz (holly−anthony)",
+        "Supine Δz (slices)",
     ]
     existing = [c for c in cols if c in df_threshold.columns]
     return df_threshold[existing].copy()
@@ -292,9 +305,11 @@ def build_interobserver_per_participant(df_threshold: pd.DataFrame) -> pd.DataFr
     rows = []
     for subject, grp in grouped:
         dists = grp["Supine Euclidean Distance"].dropna()
+        xy_dists = grp["Supine XY Distance"].dropna()
         dx = grp["Supine Δx (holly−anthony)"].dropna()
         dy = grp["Supine Δy (holly−anthony)"].dropna()
         dz = grp["Supine Δz (holly−anthony)"].dropna()
+        dz_slices = grp["Supine Δz (slices)"].dropna()
 
         rows.append({
             "Subject": subject,
@@ -302,9 +317,11 @@ def build_interobserver_per_participant(df_threshold: pd.DataFrame) -> pd.DataFr
             "Mean_distance": dists.mean() if len(dists) > 0 else np.nan,
             "Median_distance": dists.median() if len(dists) > 0 else np.nan,
             "SD_distance": dists.std() if len(dists) > 1 else np.nan,
+            "Mean_XY_distance": xy_dists.mean() if len(xy_dists) > 0 else np.nan,
             "Mean_Δx": dx.mean() if len(dx) > 0 else np.nan,
             "Mean_Δy": dy.mean() if len(dy) > 0 else np.nan,
             "Mean_Δz": dz.mean() if len(dz) > 0 else np.nan,
+            "Mean_Δz_slices": dz_slices.mean() if len(dz_slices) > 0 else np.nan,
         })
 
     return pd.DataFrame(rows)
@@ -412,15 +429,16 @@ def _fit_mixed_effects(df_threshold: pd.DataFrame) -> Dict[str, float]:
         }
 
     try:
-        # Nested random effects: participant, then landmark_type within participant
-        # statsmodels MixedLM supports one grouping variable; use variance components
-        # approach with Subject as group.
+        # Participant-only random intercept: log(distance) ~ 1 + (1|Subject)
+        # Landmark-type cross-classification is not included: with the current
+        # threshold the per-type sample is too small and the variance component
+        # collapses to zero (boundary of parameter space), causing convergence
+        # warnings and unreliable SEs.  A participant-only model is appropriate.
         model = smf.mixedlm(
             "log_distance ~ 1",
             data=df,
             groups=df["Subject"],
             re_formula="1",
-            vc_formula={"landmark_type": "0 + C(landmark_type)"},
         )
         result = model.fit(reml=True)
 
@@ -436,10 +454,7 @@ def _fit_mixed_effects(df_threshold: pd.DataFrame) -> Dict[str, float]:
         ci_upper = np.exp(intercept + 1.96 * se)
 
         participant_var = float(result.cov_re.iloc[0, 0])
-        # Variance component for landmark type
-        lt_var = np.nan
-        if hasattr(result, "vcomp") and len(result.vcomp) > 0:
-            lt_var = float(result.vcomp[0])
+        lt_var = np.nan  # not modelled (see comment above)
 
         return {
             "mixed_effects_mean": float(estimated_mean),
@@ -552,11 +567,46 @@ def build_interobserver_summary(
         "CI_lower": me["mixed_effects_ci_lower"],
         "CI_upper": me["mixed_effects_ci_upper"],
         "N_participants": len(part_means),
-        "Note": (f"log(dist) ~ 1 + (1|participant) + (1|landmark_type); "
-                 f"RE var(participant)={me['participant_re_var']:.4f}, "
-                 f"RE var(landmark_type)={me['landmark_type_re_var']:.4f}"
+        "Note": (f"log(dist) ~ 1 + (1|participant); "
+                 f"RE var(participant)={me['participant_re_var']:.4f}"
                  if not np.isnan(me["participant_re_var"]) else "Model did not converge"),
     })
+
+    # In-plane XY distance summary (excludes Z discretization artefact)
+    xy_means = df_per_participant["Mean_XY_distance"].dropna()
+    if len(xy_means) > 0:
+        rows.append({
+            "Method": "In-plane XY distance (mean of participant means)",
+            "Estimate": xy_means.mean(),
+            "SD": xy_means.std(),
+            "CI_lower": np.nan,
+            "CI_upper": np.nan,
+            "N_participants": len(xy_means),
+            "Note": (
+                "sqrt(dx^2+dy^2) only — excludes Z slice quantization; "
+                "compare to 3D Euclidean to see Z contribution"
+            ),
+        })
+
+    # Z-in-slices summary
+    dz_s_means = df_per_participant["Mean_Δz_slices"].dropna()
+    if len(dz_s_means) > 0:
+        n_agree = (dz_s_means.abs().round() == 0).sum()
+        n_one_slice = (dz_s_means.abs().round() == 1).sum()
+        rows.append({
+            "Method": "Through-plane Z disagreement (slice units)",
+            "Estimate": dz_s_means.abs().mean(),
+            "SD": dz_s_means.abs().std(),
+            "CI_lower": np.nan,
+            "CI_upper": np.nan,
+            "N_participants": len(dz_s_means),
+            "Note": (
+                f"|mean Δz| per participant in slice units "
+                f"(slice spacing = {SUPINE_SLICE_SPACING_MM} mm); "
+                f"participants with |Δz|<0.5 slices: {n_agree}/{len(dz_s_means)}, "
+                f"~1 slice: {n_one_slice}/{len(dz_s_means)}"
+            ),
+        })
 
     # Component-wise bias
     bias = _component_wise_bias(df_per_participant)
@@ -584,8 +634,9 @@ def plot_bland_altman(df_threshold: pd.DataFrame, output_path: Path) -> None:
     """
     Bland-Altman plots for supine Δx, Δy, Δz (holly − anthony).
 
-    Each panel plots (anthony + holly)/2 on x-axis vs (holly − anthony) on y-axis,
-    with mean bias and ±1.96 SD limits of agreement.
+    Row 1: X, Y, Z in mm — each plots (anthony + holly)/2 vs (holly − anthony).
+    Row 2: Z in slices — same plot with y-axis rescaled to slice units and
+           horizontal gridlines marking expected discrete bands (0, ±1, ±2 slices).
     """
     axes_info = [
         ("X", "Supine X (anthony)", "Supine X (holly)"),
@@ -593,9 +644,10 @@ def plot_bland_altman(df_threshold: pd.DataFrame, output_path: Path) -> None:
         ("Z", "Supine Z (anthony)", "Supine Z (holly)"),
     ]
 
-    fig, axs = plt.subplots(1, 3, figsize=(15, 5))
+    fig, axs = plt.subplots(2, 3, figsize=(15, 10))
 
-    for ax, (label, col_a, col_h) in zip(axs, axes_info):
+    # ── Row 1: X, Y, Z in mm ──────────────────────────────────────────────
+    for ax, (label, col_a, col_h) in zip(axs[0], axes_info):
         a = df_threshold[col_a].values
         h = df_threshold[col_h].values
 
@@ -609,11 +661,11 @@ def plot_bland_altman(df_threshold: pd.DataFrame, output_path: Path) -> None:
 
         ax.scatter(mean_val, diff, alpha=0.5, s=20, edgecolors="none")
         ax.axhline(bias, color="red", linestyle="-", linewidth=1.5,
-                    label=f"Bias = {bias:.3f} mm")
+                   label=f"Bias = {bias:.3f} mm")
         ax.axhline(loa_upper, color="grey", linestyle="--", linewidth=1,
-                    label=f"+1.96 SD = {loa_upper:.3f}")
+                   label=f"+1.96 SD = {loa_upper:.3f}")
         ax.axhline(loa_lower, color="grey", linestyle="--", linewidth=1,
-                    label=f"-1.96 SD = {loa_lower:.3f}")
+                   label=f"-1.96 SD = {loa_lower:.3f}")
         ax.axhline(0, color="black", linestyle=":", linewidth=0.5, alpha=0.5)
 
         ax.set_xlabel(f"Mean supine {label} (mm)")
@@ -621,6 +673,48 @@ def plot_bland_altman(df_threshold: pd.DataFrame, output_path: Path) -> None:
         ax.set_title(f"Bland-Altman: Supine {label}")
         ax.legend(fontsize=7, loc="lower left")
         ax.grid(True, alpha=0.2)
+
+    # ── Row 2, cols 0–1: blank (X and Y don't need slice annotation) ──────
+    for ax in axs[1, :2]:
+        ax.axis("off")
+
+    # ── Row 2, col 2: Z in slice units ────────────────────────────────────
+    ax_z = axs[1, 2]
+
+    a_z = df_threshold["Supine Z (anthony)"].values
+    h_z = df_threshold["Supine Z (holly)"].values
+    mean_z = (a_z + h_z) / 2.0
+    diff_z_slices = (h_z - a_z) / SUPINE_SLICE_SPACING_MM
+
+    bias_slices = np.mean(diff_z_slices)
+    sd_slices = np.std(diff_z_slices, ddof=1)
+    loa_upper_s = bias_slices + 1.96 * sd_slices
+    loa_lower_s = bias_slices - 1.96 * sd_slices
+
+    ax_z.scatter(mean_z, diff_z_slices, alpha=0.5, s=20, edgecolors="none")
+    ax_z.axhline(bias_slices, color="red", linestyle="-", linewidth=1.5,
+                 label=f"Bias = {bias_slices:.3f} slices")
+    ax_z.axhline(loa_upper_s, color="grey", linestyle="--", linewidth=1,
+                 label=f"+1.96 SD = {loa_upper_s:.3f}")
+    ax_z.axhline(loa_lower_s, color="grey", linestyle="--", linewidth=1,
+                 label=f"-1.96 SD = {loa_lower_s:.3f}")
+
+    # Expected discrete slice bands: ±0, ±1, ±2, ±3 slices
+    max_slice_diff = int(np.ceil(max(abs(loa_upper_s), abs(loa_lower_s)))) + 1
+    for n in range(-max_slice_diff, max_slice_diff + 1):
+        ax_z.axhline(n, color="blue", linestyle=":", linewidth=0.8, alpha=0.4,
+                     label=f"{n:+d} slice" if abs(n) <= 1 else None)
+
+    ax_z.set_xlabel("Mean supine Z (mm)")
+    ax_z.set_ylabel("Difference Z: holly - anthony (slices)")
+    ax_z.set_title(
+        f"Bland-Altman: Supine Z (slice units)\n"
+        f"Slice spacing = {SUPINE_SLICE_SPACING_MM} mm; "
+        f"blue dotted = expected discrete bands"
+    )
+    ax_z.legend(fontsize=7, loc="lower left")
+    ax_z.grid(True, alpha=0.2)
+    ax_z.yaxis.set_major_locator(plt.MultipleLocator(1))
 
     plt.tight_layout()
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -644,14 +738,24 @@ def compute_icc(df_threshold: pd.DataFrame) -> pd.DataFrame:
         ("X", "Supine X (anthony)", "Supine X (holly)"),
         ("Y", "Supine Y (anthony)", "Supine Y (holly)"),
         ("Z", "Supine Z (anthony)", "Supine Z (holly)"),
+        ("Z (slices)", "Supine Z (anthony)", "Supine Z (holly)"),  # Z rescaled to slice units
     ]
 
     rows = []
     for label, col_a, col_h in axes_info:
         a = df_threshold[col_a].dropna().values
         h = df_threshold[col_h].dropna().values
+
+        # For the Z-in-slices row rescale to slice units
+        is_slice_row = label == "Z (slices)"
+        if is_slice_row:
+            a = a / SUPINE_SLICE_SPACING_MM
+            h = h / SUPINE_SLICE_SPACING_MM
+
         n = len(a)
         k = 2  # number of raters
+
+        units = "slices" if is_slice_row else "mm"
 
         if n < 3:
             rows.append({
@@ -660,9 +764,9 @@ def compute_icc(df_threshold: pd.DataFrame) -> pd.DataFrame:
                 "95% CI lower": np.nan,
                 "95% CI upper": np.nan,
                 "N_landmarks": n,
-                "Bias (mm)": np.nan,
-                "LoA lower (mm)": np.nan,
-                "LoA upper (mm)": np.nan,
+                f"Bias ({units})": np.nan,
+                f"LoA lower ({units})": np.nan,
+                f"LoA upper ({units})": np.nan,
             })
             continue
 
@@ -714,9 +818,9 @@ def compute_icc(df_threshold: pd.DataFrame) -> pd.DataFrame:
             "95% CI lower": float(icc_lower),
             "95% CI upper": float(icc_upper),
             "N_landmarks": n,
-            "Bias (mm)": float(bias),
-            "LoA lower (mm)": float(bias - 1.96 * sd_diff),
-            "LoA upper (mm)": float(bias + 1.96 * sd_diff),
+            f"Bias ({units})": float(bias),
+            f"LoA lower ({units})": float(bias - 1.96 * sd_diff),
+            f"LoA upper ({units})": float(bias + 1.96 * sd_diff),
         })
 
     return pd.DataFrame(rows)
@@ -831,9 +935,13 @@ def main() -> None:
         ci_l = row["95% CI lower"]
         ci_u = row["95% CI upper"]
         ci_str = f"[{ci_l:.4f}, {ci_u:.4f}]" if not np.isnan(ci_l) else ""
+        units = "slices" if row["Axis"] == "Z (slices)" else "mm"
+        bias_col = f"Bias ({units})"
+        loa_l_col = f"LoA lower ({units})"
+        loa_u_col = f"LoA upper ({units})"
         print(f"  Supine {row['Axis']}: ICC(3,1) = {icc_str} {ci_str}, "
-              f"bias = {row['Bias (mm)']:.3f} mm, "
-              f"LoA = [{row['LoA lower (mm)']:.3f}, {row['LoA upper (mm)']:.3f}]")
+              f"bias = {row[bias_col]:.3f} {units}, "
+              f"LoA = [{row[loa_l_col]:.3f}, {row[loa_u_col]:.3f}]")
 
     # ── Bland-Altman plot ──
     print("\n12. Generating Bland-Altman plots...")

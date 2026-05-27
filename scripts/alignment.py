@@ -181,6 +181,7 @@ def align_prone_to_supine_optimal(
         visualize_iterations: bool = False,
         visualize_every_n: int = 10,
         pc_inferior_trim: float = 0.0,
+        pc_superior_trim: float = 0.0,
         mutual_region_padding_reciprocal: float = 0.0,
         use_initial_rotation: bool = False,
         verbose: bool = True
@@ -206,6 +207,9 @@ def align_prone_to_supine_optimal(
         visualize_every_n: Show visualization every N iterations (default: 10)
         pc_inferior_trim: Trim inferior points from supine point cloud (mm).
                          For per-subject cleanup (e.g. VL54 = 15.0). Default 0.
+        pc_superior_trim: Trim superior points from supine point cloud (mm).
+                         For per-subject cleanup when superior segmentation
+                         extends beyond the prone mesh coverage. Default 0.
         mutual_region_padding_reciprocal: Anterior padding (mm) for reciprocal
                          source filtering in Step 2. Default 0 (tight cut).
         use_initial_rotation: If True, compute Rodrigues rotation from sternum
@@ -251,7 +255,8 @@ def align_prone_to_supine_optimal(
         str(supine_ribcage_seg_path), orientation_flag, swap_axes=True
     )
     supine_ribcage_pc = extract_contour_points(supine_ribcage_mask, 20000)
-    plot_all(point_cloud=supine_ribcage_pc)
+    if plot_for_debug:
+        plot_all(point_cloud=supine_ribcage_pc)
 
     # Get element centers and select subset (from alignment_preprocessing)
     elem_info = select_mesh_elements(
@@ -283,6 +288,7 @@ def align_prone_to_supine_optimal(
         mutual_region_padding_inferior=0.0,
         mutual_region_padding_reciprocal=mutual_region_padding_reciprocal,
         pc_inferior_trim=pc_inferior_trim,
+        pc_superior_trim=pc_superior_trim,
     )
 
     # Common ICP args
@@ -299,6 +305,7 @@ def align_prone_to_supine_optimal(
         elems=selected_elements,
         point_to_point_weight=0.0,
         target_region_filter=False,
+        plot_results=plot_for_debug,
     )
 
     # Build list of starts: always include identity, optionally add Rodrigues
@@ -307,8 +314,23 @@ def align_prone_to_supine_optimal(
         starts.append(True)
 
     best_R, best_T, best_info = None, None, None
-    best_rmse = np.inf
+    best_inlier_rmse = np.inf
+    best_ribcage_rmse = np.inf
     best_label = ""
+
+    # Store results for all starts (for comparison printout)
+    all_start_results = {}
+
+    # Helper to compute full ribcage RMSE for a given rotation
+    def _compute_full_ribcage_rmse(R_candidate):
+        _src_anchor = sternum_prone[0]
+        _tgt_anchor = sternum_supine[0]
+        _transformed = apply_transform_to_coords(
+            prone_ribcage_mesh_coords, R_candidate, _src_anchor, _tgt_anchor
+        )
+        _error, _ = breast_metadata.closest_distances(_transformed, supine_ribcage_pc)
+        _error_mag = np.linalg.norm(_error, axis=1)
+        return float(np.sqrt(np.mean(_error_mag ** 2)))
 
     for use_rot in starts:
         label = "Rodrigues" if use_rot else "identity"
@@ -328,28 +350,80 @@ def align_prone_to_supine_optimal(
             src_mask=prep['src_mask'],
             R_init=prep['R_init'],
             verbose=verbose,
+            icp_label=label,
+            plot_eval=False,
         )
 
-        rmse = info['euclidean_rmse']
+        inlier_rmse = info['euclidean_rmse']
+        ribcage_rmse = _compute_full_ribcage_rmse(R)
+
+        # Store for comparison
+        all_start_results[label] = {
+            'inlier_rmse': inlier_rmse,
+            'ribcage_rmse': ribcage_rmse,
+            'iterations': info['iterations'],
+            'R': R,
+            'T_total': T_total,
+            'info': info,
+        }
+
         if verbose:
-            print(f"  {label} result: RMSE = {rmse:.4f} mm, "
+            print(f"  {label} result: Inlier RMSE = {inlier_rmse:.4f} mm, "
+                  f"Ribcage RMSE = {ribcage_rmse:.4f} mm, "
                   f"iterations = {info['iterations']}")
 
-        if rmse < best_rmse:
-            best_rmse = rmse
+        # Compare using both metrics: prefer lower ribcage RMSE, use inlier as tiebreaker
+        is_better = False
+        if ribcage_rmse < best_ribcage_rmse - 0.5:
+            # Better ribcage RMSE (primary metric)
+            is_better = True
+        elif abs(ribcage_rmse - best_ribcage_rmse) <= 0.5:
+            # Essentially equal ribcage RMSE, use inlier RMSE as tiebreaker
+            if inlier_rmse < best_inlier_rmse:
+                is_better = True
+
+        if is_better or best_R is None:
+            best_inlier_rmse = inlier_rmse
+            best_ribcage_rmse = ribcage_rmse
             best_R, best_T, best_info = R, T_total, info
             best_label = label
 
         # Short-circuit: identity converged well, skip Rodrigues run
-        if not use_rot and rmse < 4.0 and len(starts) > 1:
+        if not use_rot and ribcage_rmse < 4.0 and len(starts) > 1:
             if verbose:
-                print(f"  Identity RMSE ({rmse:.4f} mm) < 4.0 mm — skipping Rodrigues start")
+                print(f"  Identity Ribcage RMSE ({ribcage_rmse:.4f} mm) < 4.0 mm — skipping Rodrigues start")
             break
 
-    if verbose and len(starts) > 1:
-        print(f"\n  Multi-start winner: {best_label} (RMSE = {best_rmse:.4f} mm)")
+    # Print comparison table if both were run
+    if verbose and len(all_start_results) > 1:
+        print(f"\n  {'='*50}")
+        print(f"  MULTI-START COMPARISON:")
+        print(f"  {'='*50}")
+        print(f"  {'Start':<12} {'Inlier RMSE':>14} {'Ribcage RMSE':>14} {'Iterations':>12}")
+        print(f"  {'-'*50}")
+        for lbl, res in all_start_results.items():
+            marker = " <-- WINNER" if lbl == best_label else ""
+            print(f"  {lbl:<12} {res['inlier_rmse']:>11.4f} mm {res['ribcage_rmse']:>11.4f} mm {res['iterations']:>12}{marker}")
+        print(f"  {'-'*50}")
+        print(f"  Winner: {best_label} (Ribcage RMSE = {best_ribcage_rmse:.4f} mm)")
 
     R, T_total, info = best_R, best_T, best_info
+
+    # Plot evaluate alignment once for the winning ICP start
+    ed = info['eval_data']
+    plot_evaluate_alignment(
+        supine_pts=ed['supine_pts'],
+        transformed_prone_mesh=ed['transformed_prone_mesh'],
+        distances=ed['distances'],
+        idxs=ed['idxs'],
+        worst_n=60,
+        cmap="viridis",
+        point_size=3,
+        arrow_scale=20,
+        show_scalar_bar=True,
+        return_data=False,
+        title=ed['title'],
+    )
 
     # Filtered supine PC used for alignment
     supine_ribcage_pc_alignment = info['target_pts_filtered']
@@ -381,12 +455,13 @@ def align_prone_to_supine_optimal(
         prone_selected_transformed = prone_ribcage_transformed
 
     # Visualize alignment results
-    if selected_elements is not None:
+    if plot_for_debug and selected_elements is not None:
         plot_mesh_elements(prone_selected_transformed, centers_array_transformed[selected_elements],
                           selected_elements, supine_ribcage_pc_alignment)
 
-    plot_mesh_elements(prone_ribcage_transformed, centers_array_transformed,
-                      range(num_elements), supine_ribcage_pc)
+    if plot_for_debug:
+        plot_mesh_elements(prone_ribcage_transformed, centers_array_transformed,
+                          range(num_elements), supine_ribcage_pc)
 
     # ==========================================================
     # 5. CALCULATE ERRORS AND METRICS
@@ -499,15 +574,14 @@ def align_prone_to_supine_optimal(
     # ==========================================================
     # 9. VISUALIZATION (if requested)
     # ==========================================================
-    if plot_for_debug:
-        try:
-            sternum_lists = [sternum_prone_transformed, sternum_supine]
-            plot_all(
-                point_cloud=supine_ribcage_pc,
-                mesh_points=prone_ribcage_transformed,
-                anat_landmarks=sternum_lists,
-            )
-        except Exception as e:
+    try:
+        sternum_lists = [sternum_prone_transformed, sternum_supine]
+        plot_all(
+            point_cloud=supine_ribcage_pc,
+            mesh_points=prone_ribcage_transformed,
+            anat_landmarks=sternum_lists,
+        )
+    except Exception as e:
             print(f"Could not generate debug plots: {e}")
 
     # ==========================================================
