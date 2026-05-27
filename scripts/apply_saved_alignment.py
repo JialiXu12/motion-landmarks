@@ -39,10 +39,10 @@ SOFT_TISSUE_ROOT = Path(r'U:\projects\dashboard\picker_points')
 ANATOMICAL_JSON_BASE_ROOT = Path(r"U:\sandbox\jxu759\volunteer_seg\results")
 PRONE_RIBCAGE_ROOT = Path(r"U:\sandbox\jxu759\volunteer_prone_mesh")
 SUPINE_RIBCAGE_ROOT = Path(r"U:\sandbox\jxu759\volunteer_seg\results\supine\rib_cage")
-T_MATRIX_DIR = Path(r"../output/alignment/transformation_matrix_v7")
+T_MATRIX_DIR = Path(r"../output/alignment/transformation_matrix_v8")
 
 OUTPUT_DIR = Path("../output")
-EXCEL_FILE_PATH = OUTPUT_DIR / "landmark_results_v7_2026_03_10.xlsx"
+EXCEL_FILE_PATH = OUTPUT_DIR / "landmark_results_v8_2026_03_16.xlsx"
 
 
 def load_alignment_data(
@@ -520,7 +520,7 @@ if __name__ == "__main__":
         description="Apply saved alignment, compute displacements, save to Excel."
     )
     parser.add_argument(
-        "--vl_id", type=int, nargs='+', default=[15],
+        "--vl_id", type=int, nargs='+', default=[11,14,32,39,42,50,51,54,56,58,71,74,75,76,84,87],
         help="Subject VL ID number(s) (default: 9)"
     )
     parser.add_argument(
